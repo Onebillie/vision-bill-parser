@@ -6,55 +6,82 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Helper to convert PDF to base64 images
-async function pdfToBase64Images(pdfUrl: string): Promise<string[]> {
-  console.log("Converting PDF to base64 images:", pdfUrl);
+// Helper to get visual inputs for AI - tries direct URL first, falls back to conversion
+async function getVisualInputs(fileUrl: string, isPdf: boolean): Promise<{ urls: string[], usedConversion: boolean }> {
+  if (!isPdf) {
+    return { urls: [fileUrl], usedConversion: false };
+  }
+
+  console.log("PDF detected, attempting direct URL first:", fileUrl);
+  return { urls: [fileUrl], usedConversion: false };
+}
+
+// Fallback: convert PDF to images and upload to storage
+async function convertPdfToStorageUrls(pdfUrl: string): Promise<string[]> {
+  console.log("Converting PDF to images and uploading to storage:", pdfUrl);
   
   try {
-    // For now, we'll use an external free API to convert PDF to images
-    // This is a simple solution that works without complex dependencies
     const convertResponse = await fetch('https://v2.convertapi.com/convert/pdf/to/png', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         Parameters: [
-          {
-            Name: 'File',
-            FileValue: {
-              Url: pdfUrl
-            }
-          },
-          {
-            Name: 'ImageResolution',
-            Value: '150'
-          }
+          { Name: 'File', FileValue: { Url: pdfUrl } },
+          { Name: 'ImageResolution', Value: '150' }
         ]
       })
     });
 
     if (!convertResponse.ok) {
-      console.error("PDF conversion failed, falling back to direct URL");
-      // Fallback: try to use the PDF URL directly (might not work)
-      return [pdfUrl];
+      console.error("PDF conversion API failed:", convertResponse.status);
+      return [];
     }
 
     const convertData = await convertResponse.json();
-    const base64Images = convertData.Files?.map((file: any) => 
-      `data:image/png;base64,${file.FileData}`
-    ) || [];
+    const files = convertData.Files || [];
     
-    console.log(`Converted PDF to ${base64Images.length} images`);
-    return base64Images;
+    if (files.length === 0) {
+      console.error("No files returned from conversion");
+      return [];
+    }
+
+    // Upload converted images to Supabase Storage and return public URLs
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+    
+    const uploadedUrls: string[] = [];
+    const timestamp = Date.now();
+    
+    // Upload up to 3 pages
+    for (let i = 0; i < Math.min(files.length, 3); i++) {
+      const file = files[i];
+      const fileName = `converted/${timestamp}-p${i + 1}.png`;
+      
+      // Decode base64 and upload
+      const base64Data = file.FileData;
+      const binaryData = Uint8Array.from(atob(base64Data), c => c.charCodeAt(0));
+      
+      const { error } = await supabase.storage
+        .from('bills')
+        .upload(fileName, binaryData, { contentType: 'image/png', upsert: true });
+      
+      if (error) {
+        console.error(`Failed to upload page ${i + 1}:`, error);
+        continue;
+      }
+      
+      const publicUrl = `${supabaseUrl}/storage/v1/object/public/bills/${fileName}`;
+      uploadedUrls.push(publicUrl);
+    }
+    
+    console.log(`Converted and uploaded ${uploadedUrls.length} pages`);
+    return uploadedUrls;
   } catch (error) {
-    console.error("Error converting PDF:", error);
-    // Return empty array if conversion fails
+    console.error("Error in PDF conversion:", error);
     return [];
   }
 }
-
-const ONEBILL_API_KEY = "2|9TuPterPak3MpuF7EYWWicw5u3SZ46PXxnmp3tVN1994555e";
 
 const PARSE_PROMPT = `You are OneBill AI for Irish utility documents.
 
@@ -94,6 +121,14 @@ serve(async (req) => {
   try {
     const { image_url, file_path, phone } = await req.json();
     
+    const ONEBILL_API_KEY = Deno.env.get("ONEBILL_API_KEY");
+    if (!ONEBILL_API_KEY) {
+      return new Response(
+        JSON.stringify({ error: "ONEBILL_API_KEY not configured" }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+    
     if (!phone) {
       return new Response(
         JSON.stringify({ error: "Phone number is required" }),
@@ -117,47 +152,36 @@ serve(async (req) => {
       );
     }
     
-    // Detect if it's a PDF and convert to images if needed
-    const isPdf = fileUrl.toLowerCase().endsWith('.pdf');
-    const imageUrls = isPdf ? await pdfToBase64Images(fileUrl) : [fileUrl];
-    
-    if (imageUrls.length === 0) {
-      return new Response(
-        JSON.stringify({ error: "Failed to process PDF. Please try uploading a JPG or PNG image instead." }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) {
       throw new Error("LOVABLE_API_KEY not configured");
     }
 
-    console.log("Parsing bill with Lovable AI. Images:", imageUrls.length);
+    // Detect if it's a PDF
+    const isPdf = fileUrl.toLowerCase().endsWith('.pdf');
+    
+    // Get visual inputs (URLs for AI)
+    let { urls: imageUrls, usedConversion } = await getVisualInputs(fileUrl, isPdf);
+    console.log(`Parsing with ${imageUrls.length} image(s), conversion: ${usedConversion}`);
 
     // Build content array with text and images
     const content: any[] = [{ type: "text", text: PARSE_PROMPT }];
     
-    // Add all images (max 3 for multi-page bills)
+    // Add images (max 3 for multi-page bills)
     for (const imgUrl of imageUrls.slice(0, 3)) {
       content.push({ type: "image_url", image_url: { url: imgUrl } });
     }
 
     // Call Lovable AI with vision model
-    const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    let aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
       headers: {
         Authorization: `Bearer ${LOVABLE_API_KEY}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-2.5-pro", // Best for vision + complex reasoning + document parsing
-        messages: [
-          {
-            role: "user",
-            content
-          }
-        ],
+        model: "google/gemini-2.5-pro",
+        messages: [{ role: "user", content }],
         tools: [{
           type: "function",
           function: {
@@ -208,6 +232,92 @@ serve(async (req) => {
       }),
     });
 
+    // If AI fails with 400 (image extraction error) and it's a PDF, try conversion fallback
+    if (!aiResponse.ok && aiResponse.status === 400 && isPdf && !usedConversion) {
+      const errorText = await aiResponse.text();
+      console.log("Direct PDF failed, attempting conversion fallback:", errorText.slice(0, 200));
+      
+      const convertedUrls = await convertPdfToStorageUrls(fileUrl);
+      if (convertedUrls.length === 0) {
+        return new Response(
+          JSON.stringify({
+            error: "Failed to process PDF",
+            details: "Both direct parsing and conversion failed. Please try uploading a JPG or PNG image."
+          }),
+          { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+      
+      // Retry with converted images
+      imageUrls = convertedUrls;
+      usedConversion = true;
+      console.log(`Retrying with ${imageUrls.length} converted images`);
+      
+      const retryContent: any[] = [{ type: "text", text: PARSE_PROMPT }];
+      for (const imgUrl of imageUrls.slice(0, 3)) {
+        retryContent.push({ type: "image_url", image_url: { url: imgUrl } });
+      }
+      
+      aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${LOVABLE_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "google/gemini-2.5-pro",
+          messages: [{ role: "user", content: retryContent }],
+          tools: [{
+            type: "function",
+            function: {
+              name: "classify_and_extract",
+              description: "Classify document type and extract relevant data",
+              parameters: {
+                type: "object",
+                properties: {
+                  document_type: {
+                    type: "string",
+                    enum: ["meter_reading", "gas_bill", "electricity_bill"],
+                    description: "Type of document detected"
+                  },
+                  meter_reading: {
+                    type: "object",
+                    properties: {
+                      meter_type: { type: "string", enum: ["electricity", "gas"] },
+                      reading_value: { type: "number" },
+                      meter_number: { type: "string" }
+                    }
+                  },
+                  gas_bill: {
+                    type: "object",
+                    properties: {
+                      gprn: { type: "string" },
+                      supplier_name: { type: "string" },
+                      account_number: { type: "string" },
+                      meter_readings: { type: "array", items: { type: "object" } }
+                    }
+                  },
+                  electricity_bill: {
+                    type: "object",
+                    properties: {
+                      mprn: { type: "string" },
+                      mcc_type: { type: "string" },
+                      dg_type: { type: "string" },
+                      supplier_name: { type: "string" },
+                      account_number: { type: "string" },
+                      meter_readings: { type: "array", items: { type: "object" } }
+                    }
+                  }
+                },
+                required: ["document_type"]
+              }
+            }
+          }],
+          tool_choice: { type: "function", function: { name: "classify_and_extract" } }
+        }),
+      });
+    }
+
     if (!aiResponse.ok) {
       const errorText = await aiResponse.text();
       console.error("AI API error:", aiResponse.status, errorText.slice(0, 500));
@@ -240,9 +350,10 @@ serve(async (req) => {
     const formData = new FormData();
     formData.append("phone", phone);
     
-    // Get the file from storage
-    const fileBlob = await fetch(fileUrl).then(r => r.blob());
-    const fileName = fileUrl.split('/').pop() || 'document';
+    // Get the original file from storage (use first converted URL if we converted)
+    const fileToSend = usedConversion ? imageUrls[0] : fileUrl;
+    const fileBlob = await fetch(fileToSend).then(r => r.blob());
+    const fileName = fileToSend.split('/').pop() || 'document';
     formData.append("file", fileBlob, fileName);
 
     let apiEndpoint = "";

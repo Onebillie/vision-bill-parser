@@ -14,7 +14,7 @@ const Index = () => {
   const [uploading, setUploading] = useState(false);
   const [result, setResult] = useState<any>(null);
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
-  const [progressStep, setProgressStep] = useState<"idle" | "uploading" | "analyzing" | "sending" | "complete" | "error">("idle");
+  const [progressStep, setProgressStep] = useState<"idle" | "uploading" | "converting" | "analyzing" | "sending" | "complete" | "error">("idle");
   const { toast } = useToast();
 
   const handleFileUpload = async (file: File) => {
@@ -80,6 +80,14 @@ const Index = () => {
     }
 
     try {
+      // Show converting step for PDFs
+      const isPdf = (filePath && filePath.toLowerCase().endsWith('.pdf')) || 
+                    (useUrl && useUrl.toLowerCase().endsWith('.pdf'));
+      if (isPdf) {
+        setProgressStep("converting");
+        await new Promise(resolve => setTimeout(resolve, 500)); // Brief pause for UX
+      }
+      
       setProgressStep("analyzing");
       const payload: any = { phone };
       if (filePath) {
