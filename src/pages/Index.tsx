@@ -8,6 +8,7 @@ import { supabase } from "@/integrations/supabase/client";
 
 const Index = () => {
   const [imageUrl, setImageUrl] = useState("");
+  const [phone, setPhone] = useState("");
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [result, setResult] = useState<any>(null);
@@ -59,11 +60,20 @@ const Index = () => {
       return;
     }
 
+    if (!phone.trim()) {
+      toast({
+        title: "Error",
+        description: "Phone number is required",
+        variant: "destructive"
+      });
+      return;
+    }
+
     setLoading(true);
     setResult(null);
 
     try {
-      const payload: any = {};
+      const payload: any = { phone };
       if (filePath) {
         payload.file_path = filePath;
       } else {
@@ -91,12 +101,12 @@ const Index = () => {
       setResult(data);
       toast({
         title: "Success",
-        description: "Bill parsed successfully!"
+        description: data.ok ? "Sent to ONEBILL API successfully!" : "Parsed but API call failed"
       });
     } catch (error: any) {
       toast({
         title: "Error",
-        description: error.message || "Failed to parse bill",
+        description: error.message || "Failed to parse document",
         variant: "destructive"
       });
     } finally {
@@ -116,12 +126,22 @@ const Index = () => {
 
         <Card>
           <CardHeader>
-            <CardTitle>Parse Bill</CardTitle>
+            <CardTitle>Parse Document</CardTitle>
             <CardDescription>
-              Upload a bill file (JPG, PNG, WEBP, PDF) or enter a public URL
+              Upload a meter reading, gas bill, or electricity bill (JPG, PNG, WEBP, PDF)
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
+            {/* Phone Number */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Phone Number *</label>
+              <Input
+                placeholder="+353 XX XXX XXXX"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                disabled={loading || uploading}
+              />
+            </div>
             {/* File Upload */}
             <div className="space-y-2">
               <label className="text-sm font-medium">Upload File</label>
@@ -208,16 +228,26 @@ const Index = () => {
         {result && (
           <Card>
             <CardHeader>
-              <CardTitle>Parsed Results</CardTitle>
+              <CardTitle>Results</CardTitle>
               <CardDescription>
-                {result.routed?.length > 0 &&
-                  `Routed to: ${result.routed.map((r: any) => r.endpoint).join(", ")}`}
+                Document Type: {result.data?.document_type} | 
+                API: {result.api_endpoint?.split('/').pop()} | 
+                Status: {result.api_status}
               </CardDescription>
             </CardHeader>
-            <CardContent>
-              <pre className="bg-muted p-4 rounded-lg overflow-auto text-sm">
-                {JSON.stringify(result.data, null, 2)}
-              </pre>
+            <CardContent className="space-y-4">
+              <div>
+                <h4 className="font-semibold mb-2">Extracted Data:</h4>
+                <pre className="bg-muted p-4 rounded-lg overflow-auto text-sm">
+                  {JSON.stringify(result.data, null, 2)}
+                </pre>
+              </div>
+              <div>
+                <h4 className="font-semibold mb-2">API Response:</h4>
+                <pre className="bg-muted p-4 rounded-lg overflow-auto text-sm">
+                  {result.api_response}
+                </pre>
+              </div>
             </CardContent>
           </Card>
         )}

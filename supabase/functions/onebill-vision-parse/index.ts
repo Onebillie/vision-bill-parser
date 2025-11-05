@@ -21,16 +21,37 @@ async function pdfToImages(pdfUrl: string): Promise<string[]> {
   return [pdfUrl];
 }
 
-const PARSE_PROMPT = `You are OneBill AI.
+const ONEBILL_API_KEY = "2|9TuPterPak3MpuF7EYWWicw5u3SZ46PXxnmp3tVN1994555e";
 
-Parse this Irish utility bill image. Detect which utilities are present (electricity, gas, broadband) and extract all relevant information.
+const PARSE_PROMPT = `You are OneBill AI for Irish utility documents.
 
-Rules:
-- Dates: "YYYY-MM-DD"; unknown → "0000-00-00"
-- Numbers: numeric; unknown → 0
-- Booleans: true/false
-- Detect utilities using signals: MPRN/MCC/DG → electricity; GPRN/carbon tax → gas
-- Return complete data for all detected utilities`;
+Analyze this image and determine what type it is:
+1. METER READING: A photo of an electricity or gas meter showing current readings
+2. GAS BILL: A document/bill from a gas supplier with GPRN and usage details
+3. ELECTRICITY BILL: A document/bill from electricity supplier with MPRN, MCC, and DG details
+
+Extract relevant information based on type:
+
+For METER READING:
+- meter_type: "electricity" or "gas"
+- reading_value: the current meter reading number
+- meter_number: meter serial/ID if visible
+
+For GAS BILL:
+- gprn: Gas Point Registration Number (format: xxxxxxxx)
+- supplier_name: Gas supplier company name
+- account_number: Customer account number
+- meter_readings: array of readings with dates and values
+
+For ELECTRICITY BILL:
+- mprn: Meter Point Registration Number (format: xxxxxxxxxx)
+- mcc_type: Market Category Code (e.g., "Domestic", "Commercial")
+- dg_type: Deemed Group type (e.g., "DG1", "DG2", "DG3")
+- supplier_name: Electricity supplier company name
+- account_number: Customer account number
+- meter_readings: array of readings with dates and values
+
+Be precise with meter identifiers (GPRN, MPRN) and extract them exactly as shown.`;
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -38,7 +59,14 @@ serve(async (req) => {
   }
 
   try {
-    const { image_url, file_path } = await req.json();
+    const { image_url, file_path, phone } = await req.json();
+    
+    if (!phone) {
+      return new Response(
+        JSON.stringify({ error: "Phone number is required" }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
     
     let fileUrl = image_url;
     
@@ -93,58 +121,50 @@ serve(async (req) => {
         tools: [{
           type: "function",
           function: {
-            name: "parse_bill",
-            description: "Extract structured bill data",
+            name: "classify_and_extract",
+            description: "Classify document type and extract relevant data",
             parameters: {
               type: "object",
               properties: {
-                bills: {
+                document_type: {
+                  type: "string",
+                  enum: ["meter_reading", "gas_bill", "electricity_bill"],
+                  description: "Type of document detected"
+                },
+                meter_reading: {
                   type: "object",
                   properties: {
-                    cus_details: {
-                      type: "array",
-                      items: {
-                        type: "object",
-                        properties: {
-                          details: {
-                            type: "object",
-                            properties: {
-                              customer_name: { type: "string" },
-                              address: {
-                                type: "object",
-                                properties: {
-                                  line_1: { type: "string" },
-                                  line_2: { type: "string" },
-                                  city: { type: "string" },
-                                  county: { type: "string" },
-                                  eircode: { type: "string" }
-                                }
-                              }
-                            }
-                          },
-                          services: {
-                            type: "object",
-                            properties: {
-                              gas: { type: "boolean" },
-                              broadband: { type: "boolean" },
-                              electricity: { type: "boolean" }
-                            }
-                          }
-                        }
-                      }
-                    },
-                    electricity: { type: "array", items: { type: "object" } },
-                    gas: { type: "array", items: { type: "object" } },
-                    broadband: { type: "array", items: { type: "object" } }
-                  },
-                  required: ["cus_details", "electricity", "gas", "broadband"]
+                    meter_type: { type: "string", enum: ["electricity", "gas"] },
+                    reading_value: { type: "number" },
+                    meter_number: { type: "string" }
+                  }
+                },
+                gas_bill: {
+                  type: "object",
+                  properties: {
+                    gprn: { type: "string" },
+                    supplier_name: { type: "string" },
+                    account_number: { type: "string" },
+                    meter_readings: { type: "array", items: { type: "object" } }
+                  }
+                },
+                electricity_bill: {
+                  type: "object",
+                  properties: {
+                    mprn: { type: "string" },
+                    mcc_type: { type: "string" },
+                    dg_type: { type: "string" },
+                    supplier_name: { type: "string" },
+                    account_number: { type: "string" },
+                    meter_readings: { type: "array", items: { type: "object" } }
+                  }
                 }
               },
-              required: ["bills"]
+              required: ["document_type"]
             }
           }
         }],
-        tool_choice: { type: "function", function: { name: "parse_bill" } }
+        tool_choice: { type: "function", function: { name: "classify_and_extract" } }
       }),
     });
 
@@ -174,37 +194,87 @@ serve(async (req) => {
     }
 
     const parsedData = JSON.parse(toolCall.function.arguments);
-    console.log("Parsed bill data successfully");
+    console.log("Parsed document:", parsedData.document_type);
 
-    // Route to ONEBILL API based on detected services
-    const services = parsedData.bills?.cus_details?.[0]?.services || {};
-    const routed = [];
+    // Prepare form data for ONEBILL API
+    const formData = new FormData();
+    formData.append("phone", phone);
+    
+    // Get the file from storage
+    const fileBlob = await fetch(fileUrl).then(r => r.blob());
+    const fileName = fileUrl.split('/').pop() || 'document';
+    formData.append("file", fileBlob, fileName);
 
-    if (services.electricity) {
-      console.log("Routing to electricity API");
-      const elecResponse = await fetch("https://api.onebill.ie/api/electricity-file", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(parsedData)
-      });
-      routed.push({ endpoint: "electricity-file", status: elecResponse.status });
+    let apiEndpoint = "";
+    let apiResponse;
+
+    // Route based on document type
+    switch (parsedData.document_type) {
+      case "meter_reading":
+        console.log("Routing to meter API");
+        apiEndpoint = "https://api.onebill.ie/api/meter-file";
+        apiResponse = await fetch(apiEndpoint, {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${ONEBILL_API_KEY}`
+          },
+          body: formData
+        });
+        break;
+
+      case "gas_bill":
+        console.log("Routing to gas bill API");
+        apiEndpoint = "https://api.onebill.ie/api/gas-file";
+        if (parsedData.gas_bill?.gprn) {
+          formData.append("gprn", parsedData.gas_bill.gprn);
+        }
+        apiResponse = await fetch(apiEndpoint, {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${ONEBILL_API_KEY}`
+          },
+          body: formData
+        });
+        break;
+
+      case "electricity_bill":
+        console.log("Routing to electricity bill API");
+        apiEndpoint = "https://api.onebill.ie/api/electricity-file";
+        if (parsedData.electricity_bill?.mprn) {
+          formData.append("mprn", parsedData.electricity_bill.mprn);
+        }
+        if (parsedData.electricity_bill?.mcc_type) {
+          formData.append("mcc_type", parsedData.electricity_bill.mcc_type);
+        }
+        if (parsedData.electricity_bill?.dg_type) {
+          formData.append("dg_type", parsedData.electricity_bill.dg_type);
+        }
+        apiResponse = await fetch(apiEndpoint, {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${ONEBILL_API_KEY}`
+          },
+          body: formData
+        });
+        break;
+
+      default:
+        return new Response(
+          JSON.stringify({ error: "Unknown document type" }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
     }
 
-    if (services.gas) {
-      console.log("Routing to gas API");
-      const gasResponse = await fetch("https://api.onebill.ie/api/gas-file", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(parsedData)
-      });
-      routed.push({ endpoint: "gas-file", status: gasResponse.status });
-    }
+    const apiResult = await apiResponse.text();
+    console.log("ONEBILL API response:", apiResponse.status, apiResult.slice(0, 200));
 
     return new Response(
       JSON.stringify({
-        ok: true,
+        ok: apiResponse.ok,
         data: parsedData,
-        routed
+        api_endpoint: apiEndpoint,
+        api_status: apiResponse.status,
+        api_response: apiResult
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
