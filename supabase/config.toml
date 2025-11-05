@@ -1,1 +1,4 @@
 project_id = "lcmhoexolugvaucsrecp"
+
+[functions.onebill-vision-parse]
+verify_jwt = false
