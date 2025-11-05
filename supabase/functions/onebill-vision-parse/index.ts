@@ -45,7 +45,17 @@ async function convertPdfToStorageUrls(pdfUrl: string): Promise<string[]> {
       return [];
     }
 
-    // Upload converted images to Supabase Storage and return public URLs
+    // Prefer direct URLs from the converter when available
+    const directUrls = files
+      .map((f: any) => f.FileUrl)
+      .filter((u: string | undefined) => typeof u === 'string')
+      .slice(0, 3);
+    if (directUrls.length > 0) {
+      console.log(`Using ${directUrls.length} direct converted page URL(s)`);
+      return directUrls;
+    }
+
+    // Otherwise, upload decoded images to Storage and return public URLs
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
@@ -53,24 +63,19 @@ async function convertPdfToStorageUrls(pdfUrl: string): Promise<string[]> {
     const uploadedUrls: string[] = [];
     const timestamp = Date.now();
     
-    // Upload up to 3 pages
     for (let i = 0; i < Math.min(files.length, 3); i++) {
       const file = files[i];
       const fileName = `converted/${timestamp}-p${i + 1}.png`;
-      
-      // Decode base64 and upload
-      const base64Data = file.FileData;
+      const base64Data: string | undefined = file.FileData;
+      if (!base64Data) continue;
       const binaryData = Uint8Array.from(atob(base64Data), c => c.charCodeAt(0));
-      
       const { error } = await supabase.storage
         .from('bills')
         .upload(fileName, binaryData, { contentType: 'image/png', upsert: true });
-      
       if (error) {
         console.error(`Failed to upload page ${i + 1}:`, error);
         continue;
       }
-      
       const publicUrl = `${supabaseUrl}/storage/v1/object/public/bills/${fileName}`;
       uploadedUrls.push(publicUrl);
     }

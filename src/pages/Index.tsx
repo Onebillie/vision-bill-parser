@@ -6,6 +6,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Loader2, Upload } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { ParsingProgress } from "@/components/ParsingProgress";
+import { renderPdfFirstPageToBlob } from "@/lib/pdf-to-image";
 
 const Index = () => {
   const [imageUrl, setImageUrl] = useState("");
@@ -23,19 +24,28 @@ const Index = () => {
     setProgressStep("uploading");
     
     try {
-      const fileExt = file.name.split('.').pop();
+      // If PDF, convert first page to PNG client-side
+      let fileToUpload: File = file;
+      const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+      if (isPdf) {
+        setProgressStep("converting");
+        const pngBlob = await renderPdfFirstPageToBlob(file);
+        fileToUpload = new File([pngBlob], `${Date.now()}.png`, { type: 'image/png' });
+      }
+
+      const fileExt = fileToUpload.name.split('.').pop();
       const fileName = `${Date.now()}.${fileExt}`;
       const filePath = fileName;
 
       const { error: uploadError } = await supabase.storage
         .from('bills')
-        .upload(filePath, file);
+        .upload(filePath, fileToUpload);
 
       if (uploadError) throw uploadError;
 
       toast({
         title: "Upload complete",
-        description: "File uploaded successfully. Ready to parse!"
+        description: isPdf ? "Converted PDF and uploaded image. Parsing now..." : "File uploaded successfully. Ready to parse!"
       });
 
       // Auto-parse after upload
