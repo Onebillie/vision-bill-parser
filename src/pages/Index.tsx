@@ -9,7 +9,6 @@ import { ParsingProgress } from "@/components/ParsingProgress";
 import { renderPdfFirstPageToBlob } from "@/lib/pdf-to-image";
 
 const Index = () => {
-  const [imageUrl, setImageUrl] = useState("");
   const [phone, setPhone] = useState("");
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -49,7 +48,7 @@ const Index = () => {
       });
 
       // Auto-parse after upload
-      await handleParse(undefined, filePath);
+      await handleParse(filePath);
     } catch (error: any) {
       setProgressStep("error");
       toast({
@@ -62,13 +61,11 @@ const Index = () => {
     }
   };
 
-  const handleParse = async (url?: string, filePath?: string) => {
-    const useUrl = url || imageUrl;
-    
-    if (!useUrl && !filePath) {
+  const handleParse = async (filePath?: string) => {
+    if (!filePath) {
       toast({
         title: "Error",
-        description: "Please enter a URL or upload a file",
+        description: "Please upload a file",
         variant: "destructive"
       });
       return;
@@ -91,20 +88,14 @@ const Index = () => {
 
     try {
       // Show converting step for PDFs
-      const isPdf = (filePath && filePath.toLowerCase().endsWith('.pdf')) || 
-                    (useUrl && useUrl.toLowerCase().endsWith('.pdf'));
+      const isPdf = filePath && filePath.toLowerCase().endsWith('.pdf');
       if (isPdf) {
         setProgressStep("converting");
         await new Promise(resolve => setTimeout(resolve, 500)); // Brief pause for UX
       }
       
       setProgressStep("analyzing");
-      const payload: any = { phone };
-      if (filePath) {
-        payload.file_path = filePath;
-      } else {
-        payload.image_url = useUrl;
-      }
+      const payload: any = { phone, file_path: filePath };
 
       const response = await fetch(
         `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/onebill-vision-parse`,
@@ -217,46 +208,6 @@ const Index = () => {
                 disabled={uploading || loading}
               />
             </div>
-
-            {/* URL Input */}
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Or Enter URL</label>
-              <div className="flex gap-2">
-                <Input
-                  placeholder="https://example.com/bill.jpg"
-                  value={imageUrl}
-                  onChange={(e) => setImageUrl(e.target.value)}
-                  disabled={loading || uploading}
-                />
-                <Button onClick={() => handleParse()} disabled={loading || uploading || !imageUrl}>
-                  {loading ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Parsing...
-                    </>
-                  ) : (
-                    "Parse"
-                  )}
-                </Button>
-              </div>
-            </div>
-
-            {imageUrl && !uploadedFile && (
-              <div className="border rounded-lg overflow-hidden">
-                <img
-                  src={imageUrl}
-                  alt="Bill preview"
-                  className="w-full h-auto"
-                  onError={() =>
-                    toast({
-                      title: "Invalid image URL",
-                      description: "Could not load the image",
-                      variant: "destructive"
-                    })
-                  }
-                />
-              </div>
-            )}
           </CardContent>
         </Card>
 
