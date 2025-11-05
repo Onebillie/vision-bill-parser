@@ -6,19 +6,52 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-// Helper to convert PDF to images using pdf-lib
-async function pdfToImages(pdfUrl: string): Promise<string[]> {
-  console.log("Converting PDF to images:", pdfUrl);
+// Helper to convert PDF to base64 images
+async function pdfToBase64Images(pdfUrl: string): Promise<string[]> {
+  console.log("Converting PDF to base64 images:", pdfUrl);
   
-  // Fetch PDF
-  const pdfResponse = await fetch(pdfUrl);
-  const pdfBlob = await pdfResponse.blob();
-  const pdfBuffer = await pdfBlob.arrayBuffer();
-  
-  // For PDFs, we'll use an external conversion service or return the PDF URL
-  // Since Deno edge functions have limited PDF processing, we return the PDF URL
-  // and let the AI model handle it directly (Gemini supports PDF)
-  return [pdfUrl];
+  try {
+    // For now, we'll use an external free API to convert PDF to images
+    // This is a simple solution that works without complex dependencies
+    const convertResponse = await fetch('https://v2.convertapi.com/convert/pdf/to/png', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        Parameters: [
+          {
+            Name: 'File',
+            FileValue: {
+              Url: pdfUrl
+            }
+          },
+          {
+            Name: 'ImageResolution',
+            Value: '150'
+          }
+        ]
+      })
+    });
+
+    if (!convertResponse.ok) {
+      console.error("PDF conversion failed, falling back to direct URL");
+      // Fallback: try to use the PDF URL directly (might not work)
+      return [pdfUrl];
+    }
+
+    const convertData = await convertResponse.json();
+    const base64Images = convertData.Files?.map((file: any) => 
+      `data:image/png;base64,${file.FileData}`
+    ) || [];
+    
+    console.log(`Converted PDF to ${base64Images.length} images`);
+    return base64Images;
+  } catch (error) {
+    console.error("Error converting PDF:", error);
+    // Return empty array if conversion fails
+    return [];
+  }
 }
 
 const ONEBILL_API_KEY = "2|9TuPterPak3MpuF7EYWWicw5u3SZ46PXxnmp3tVN1994555e";
@@ -86,7 +119,14 @@ serve(async (req) => {
     
     // Detect if it's a PDF and convert to images if needed
     const isPdf = fileUrl.toLowerCase().endsWith('.pdf');
-    const imageUrls = isPdf ? await pdfToImages(fileUrl) : [fileUrl];
+    const imageUrls = isPdf ? await pdfToBase64Images(fileUrl) : [fileUrl];
+    
+    if (imageUrls.length === 0) {
+      return new Response(
+        JSON.stringify({ error: "Failed to process PDF. Please try uploading a JPG or PNG image instead." }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) {
