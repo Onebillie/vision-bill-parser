@@ -3,19 +3,57 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2 } from "lucide-react";
+import { Loader2, Upload } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
 
 const Index = () => {
   const [imageUrl, setImageUrl] = useState("");
   const [loading, setLoading] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [result, setResult] = useState<any>(null);
+  const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const { toast } = useToast();
 
-  const handleParse = async () => {
-    if (!imageUrl.trim()) {
+  const handleFileUpload = async (file: File) => {
+    setUploading(true);
+    setUploadedFile(file);
+    
+    try {
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${Date.now()}.${fileExt}`;
+      const filePath = fileName;
+
+      const { error: uploadError } = await supabase.storage
+        .from('bills')
+        .upload(filePath, file);
+
+      if (uploadError) throw uploadError;
+
+      toast({
+        title: "Upload complete",
+        description: "File uploaded successfully. Ready to parse!"
+      });
+
+      // Auto-parse after upload
+      await handleParse(undefined, filePath);
+    } catch (error: any) {
+      toast({
+        title: "Upload failed",
+        description: error.message,
+        variant: "destructive"
+      });
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleParse = async (url?: string, filePath?: string) => {
+    const useUrl = url || imageUrl;
+    
+    if (!useUrl && !filePath) {
       toast({
         title: "Error",
-        description: "Please enter an image URL",
+        description: "Please enter a URL or upload a file",
         variant: "destructive"
       });
       return;
@@ -25,6 +63,13 @@ const Index = () => {
     setResult(null);
 
     try {
+      const payload: any = {};
+      if (filePath) {
+        payload.file_path = filePath;
+      } else {
+        payload.image_url = useUrl;
+      }
+
       const response = await fetch(
         `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/onebill-vision-parse`,
         {
@@ -33,7 +78,7 @@ const Index = () => {
             "Content-Type": "application/json",
             Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`
           },
-          body: JSON.stringify({ image_url: imageUrl })
+          body: JSON.stringify(payload)
         }
       );
 
@@ -71,32 +116,77 @@ const Index = () => {
 
         <Card>
           <CardHeader>
-            <CardTitle>Parse Bill Image</CardTitle>
+            <CardTitle>Parse Bill</CardTitle>
             <CardDescription>
-              Enter a publicly accessible image URL of your bill (JPG, PNG, or WEBP)
+              Upload a bill file (JPG, PNG, WEBP, PDF) or enter a public URL
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="flex gap-2">
-              <Input
-                placeholder="https://example.com/bill.jpg"
-                value={imageUrl}
-                onChange={(e) => setImageUrl(e.target.value)}
-                disabled={loading}
+            {/* File Upload */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Upload File</label>
+              <div
+                className="border-2 border-dashed rounded-lg p-8 text-center hover:border-primary transition-colors cursor-pointer"
+                onClick={() => document.getElementById('file-input')?.click()}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  e.currentTarget.classList.add('border-primary');
+                }}
+                onDragLeave={(e) => {
+                  e.currentTarget.classList.remove('border-primary');
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  e.currentTarget.classList.remove('border-primary');
+                  const file = e.dataTransfer.files[0];
+                  if (file) handleFileUpload(file);
+                }}
+              >
+                <Upload className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
+                <p className="text-sm text-muted-foreground">
+                  {uploading ? "Uploading..." : uploadedFile ? uploadedFile.name : "Drag and drop or click to upload"}
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Supports JPG, PNG, WEBP, PDF (max 20MB)
+                </p>
+              </div>
+              <input
+                id="file-input"
+                type="file"
+                accept="image/jpeg,image/png,image/webp,application/pdf"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) handleFileUpload(file);
+                }}
+                disabled={uploading || loading}
               />
-              <Button onClick={handleParse} disabled={loading}>
-                {loading ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Parsing...
-                  </>
-                ) : (
-                  "Parse Bill"
-                )}
-              </Button>
             </div>
 
-            {imageUrl && (
+            {/* URL Input */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Or Enter URL</label>
+              <div className="flex gap-2">
+                <Input
+                  placeholder="https://example.com/bill.jpg"
+                  value={imageUrl}
+                  onChange={(e) => setImageUrl(e.target.value)}
+                  disabled={loading || uploading}
+                />
+                <Button onClick={() => handleParse()} disabled={loading || uploading || !imageUrl}>
+                  {loading ? (
+                    <>
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                      Parsing...
+                    </>
+                  ) : (
+                    "Parse"
+                  )}
+                </Button>
+              </div>
+            </div>
+
+            {imageUrl && !uploadedFile && (
               <div className="border rounded-lg overflow-hidden">
                 <img
                   src={imageUrl}

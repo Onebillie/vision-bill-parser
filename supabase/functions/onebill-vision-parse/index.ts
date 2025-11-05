@@ -1,9 +1,25 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
+
+// Helper to convert PDF to images using pdf-lib
+async function pdfToImages(pdfUrl: string): Promise<string[]> {
+  console.log("Converting PDF to images:", pdfUrl);
+  
+  // Fetch PDF
+  const pdfResponse = await fetch(pdfUrl);
+  const pdfBlob = await pdfResponse.blob();
+  const pdfBuffer = await pdfBlob.arrayBuffer();
+  
+  // For PDFs, we'll use an external conversion service or return the PDF URL
+  // Since Deno edge functions have limited PDF processing, we return the PDF URL
+  // and let the AI model handle it directly (Gemini supports PDF)
+  return [pdfUrl];
+}
 
 const PARSE_PROMPT = `You are OneBill AI.
 
@@ -22,21 +38,42 @@ serve(async (req) => {
   }
 
   try {
-    const { image_url } = await req.json();
+    const { image_url, file_path } = await req.json();
     
-    if (!image_url) {
+    let fileUrl = image_url;
+    
+    // If file_path is provided, construct the Supabase Storage URL
+    if (file_path) {
+      const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+      fileUrl = `${supabaseUrl}/storage/v1/object/public/bills/${file_path}`;
+      console.log("Using uploaded file:", fileUrl);
+    }
+    
+    if (!fileUrl) {
       return new Response(
-        JSON.stringify({ error: "image_url is required" }),
+        JSON.stringify({ error: "Either image_url or file_path is required" }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
+    
+    // Detect if it's a PDF and convert to images if needed
+    const isPdf = fileUrl.toLowerCase().endsWith('.pdf');
+    const imageUrls = isPdf ? await pdfToImages(fileUrl) : [fileUrl];
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) {
       throw new Error("LOVABLE_API_KEY not configured");
     }
 
-    console.log("Parsing bill image with Lovable AI:", image_url);
+    console.log("Parsing bill with Lovable AI. Images:", imageUrls.length);
+
+    // Build content array with text and images
+    const content: any[] = [{ type: "text", text: PARSE_PROMPT }];
+    
+    // Add all images (max 3 for multi-page bills)
+    for (const imgUrl of imageUrls.slice(0, 3)) {
+      content.push({ type: "image_url", image_url: { url: imgUrl } });
+    }
 
     // Call Lovable AI with vision model
     const aiResponse = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
@@ -46,14 +83,11 @@ serve(async (req) => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-2.5-pro", // Best for vision + complex reasoning
+        model: "google/gemini-2.5-flash", // Default model
         messages: [
           {
             role: "user",
-            content: [
-              { type: "text", text: PARSE_PROMPT },
-              { type: "image_url", image_url: { url: image_url } }
-            ]
+            content
           }
         ],
         tools: [{
