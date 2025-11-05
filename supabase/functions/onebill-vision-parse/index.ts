@@ -217,9 +217,254 @@ serve(async (req) => {
                         }
                       }
                     },
-                    electricity: { type: "array", items: { type: "object", additionalProperties: true } },
-                    gas: { type: "array", items: { type: "object", additionalProperties: true } },
-                    broadband: { type: "array", items: { type: "object", additionalProperties: true } }
+                    electricity: {
+                      type: "array",
+                      items: {
+                        type: "object",
+                        properties: {
+                          electricity_details: {
+                            type: "object",
+                            properties: {
+                              invoice_number: { type: "string" },
+                              account_number: { type: "string" },
+                              contract_end_date: { type: "string" },
+                              meter_details: {
+                                type: "object",
+                                properties: {
+                                  mprn: { type: "string" },
+                                  dg: { type: "string" },
+                                  mcc: { type: "string" },
+                                  profile: { type: "string" }
+                                }
+                              }
+                            }
+                          },
+                          supplier_details: {
+                            type: "object",
+                            properties: {
+                              name: { type: "string" },
+                              tariff_name: { type: "string" },
+                              issue_date: { type: "string" },
+                              billing_period: { type: "string" }
+                            }
+                          },
+                          charges_and_usage: {
+                            type: "object",
+                            properties: {
+                              meter_readings: {
+                                type: "array",
+                                items: {
+                                  type: "object",
+                                  properties: {
+                                    reading_type: { type: "string" },
+                                    date: { type: "string" },
+                                    nsh_reading: { type: "number" },
+                                    day_reading: { type: "number" },
+                                    night_reading: { type: "number" },
+                                    peak_reading: { type: "number" }
+                                  }
+                                }
+                              },
+                              detailed_kWh_usage: {
+                                type: "array",
+                                items: {
+                                  type: "object",
+                                  properties: {
+                                    start_read_date: { type: "string" },
+                                    end_read_date: { type: "string" },
+                                    day_kWh: { type: "number" },
+                                    night_kWh: { type: "number" },
+                                    peak_kWh: { type: "number" },
+                                    ev_kWh: { type: "number" }
+                                  }
+                                }
+                              },
+                              unit_rates: {
+                                type: "object",
+                                properties: {
+                                  "24_hour_rate": { type: "number" },
+                                  day: { type: "number" },
+                                  night: { type: "number" },
+                                  peak: { type: "number" },
+                                  ev: { type: "number" },
+                                  nsh: { type: "number" },
+                                  rate_currency: { type: "string", enum: ["cent", "euro"] },
+                                  rate_discount_percentage: { type: "number" }
+                                }
+                              },
+                              standing_charge: { type: "number" },
+                              standing_charge_currency: { type: "string", enum: ["cent", "euro"] },
+                              standing_charge_period: { type: "string", enum: ["daily", "annual"] },
+                              nsh_standing_charge: { type: "number" },
+                              nsh_standing_charge_currency: { type: "string", enum: ["cent", "euro"] },
+                              nsh_standing_charge_period: { type: "string", enum: ["daily", "annual"] },
+                              pso_levy: { type: "number" }
+                            }
+                          },
+                          financial_information: {
+                            type: "object",
+                            properties: {
+                              total_due: { type: "number" },
+                              amount_due: { type: "number" },
+                              due_date: { type: "string" },
+                              payment_due_date: { type: "string" }
+                            }
+                          }
+                        },
+                        additionalProperties: false
+                      }
+                    },
+                    gas: {
+                      type: "array",
+                      items: {
+                        type: "object",
+                        properties: {
+                          gas_details: {
+                            type: "object",
+                            properties: {
+                              invoice_number: { type: "string" },
+                              account_number: { type: "string" },
+                              contract_end_date: { type: "string" },
+                              meter_details: {
+                                type: "object",
+                                properties: {
+                                  gprn: { type: "string" }
+                                }
+                              }
+                            }
+                          },
+                          supplier_details: {
+                            type: "object",
+                            properties: {
+                              name: { type: "string" },
+                              tariff_name: { type: "string" },
+                              issue_date: { type: "string" },
+                              billing_period: { type: "string" }
+                            }
+                          },
+                          charges_and_usage: {
+                            type: "object",
+                            properties: {
+                              meter_readings: {
+                                type: "array",
+                                items: {
+                                  type: "object",
+                                  properties: {
+                                    meter_type: { type: "string" },
+                                    date: { type: "string" },
+                                    reading: { type: "number" }
+                                  }
+                                }
+                              },
+                              unit_rates: {
+                                type: "object",
+                                properties: {
+                                  rate: { type: "number" },
+                                  rate_currency: { type: "string", enum: ["cent", "euro"] }
+                                }
+                              },
+                              standing_charge: { type: "number" },
+                              standing_charge_currency: { type: "string", enum: ["cent", "euro"] },
+                              standing_charge_period: { type: "string", enum: ["daily", "annual"] },
+                              carbon_tax: { type: "number" }
+                            }
+                          },
+                          financial_information: {
+                            type: "object",
+                            properties: {
+                              total_due: { type: "number" },
+                              amount_due: { type: "number" },
+                              due_date: { type: "string" },
+                              payment_due_date: { type: "string" }
+                            }
+                          }
+                        },
+                        additionalProperties: false
+                      }
+                    },
+                    broadband: {
+                      type: "array",
+                      items: {
+                        type: "object",
+                        properties: {
+                          broadband_details: {
+                            type: "object",
+                            properties: {
+                              account_number: { type: "string" },
+                              phone_numbers: {
+                                type: "array",
+                                items: { type: "string" }
+                              }
+                            }
+                          },
+                          supplier_details: {
+                            type: "object",
+                            properties: {
+                              name: { type: "string" },
+                              tariff_name: { type: "string" },
+                              issue_date: { type: "string" },
+                              billing_period: { type: "string" }
+                            }
+                          },
+                          service_details: {
+                            type: "object",
+                            properties: {
+                              broadband_number: { type: "string" },
+                              uan_number: { type: "string" },
+                              connection_type: { type: "string" },
+                              home_phone_number: { type: "string" },
+                              mobile_phone_numbers: {
+                                type: "array",
+                                items: { type: "string" }
+                              },
+                              utility_types: {
+                                type: "array",
+                                items: { type: "string" }
+                              }
+                            }
+                          },
+                          package_information: {
+                            type: "object",
+                            properties: {
+                              package_name: { type: "string" },
+                              contract_changes: { type: "string" },
+                              contract_end_date: { type: "string" },
+                              what_s_included: {
+                                type: "object",
+                                properties: {
+                                  calls: { type: "string" },
+                                  usage: { type: "string" },
+                                  bandwidth: { type: "string" },
+                                  usage_minutes: { type: "string" },
+                                  int_call_packages: { type: "string" },
+                                  local_national_calls: { type: "string" }
+                                }
+                              }
+                            }
+                          },
+                          financial_information: {
+                            type: "object",
+                            properties: {
+                              previous_bill_amount: { type: "number" },
+                              total_due: { type: "number" },
+                              amount_due: { type: "number" },
+                              due_date: { type: "string" },
+                              payment_due_date: { type: "string" },
+                              payment_method: { type: "string" },
+                              payments_received: { type: "string" },
+                              bank_details: {
+                                type: "object",
+                                properties: {
+                                  iban: { type: "string" },
+                                  bic: { type: "string" }
+                                }
+                              }
+                            }
+                          }
+                        },
+                        additionalProperties: false
+                      }
+                    }
                   },
                   required: ["cus_details", "electricity", "gas", "broadband"],
                   additionalProperties: true
@@ -313,9 +558,254 @@ serve(async (req) => {
                           }
                         }
                       },
-                      electricity: { type: "array", items: { type: "object", additionalProperties: true } },
-                      gas: { type: "array", items: { type: "object", additionalProperties: true } },
-                      broadband: { type: "array", items: { type: "object", additionalProperties: true } }
+                      electricity: {
+                        type: "array",
+                        items: {
+                          type: "object",
+                          properties: {
+                            electricity_details: {
+                              type: "object",
+                              properties: {
+                                invoice_number: { type: "string" },
+                                account_number: { type: "string" },
+                                contract_end_date: { type: "string" },
+                                meter_details: {
+                                  type: "object",
+                                  properties: {
+                                    mprn: { type: "string" },
+                                    dg: { type: "string" },
+                                    mcc: { type: "string" },
+                                    profile: { type: "string" }
+                                  }
+                                }
+                              }
+                            },
+                            supplier_details: {
+                              type: "object",
+                              properties: {
+                                name: { type: "string" },
+                                tariff_name: { type: "string" },
+                                issue_date: { type: "string" },
+                                billing_period: { type: "string" }
+                              }
+                            },
+                            charges_and_usage: {
+                              type: "object",
+                              properties: {
+                                meter_readings: {
+                                  type: "array",
+                                  items: {
+                                    type: "object",
+                                    properties: {
+                                      reading_type: { type: "string" },
+                                      date: { type: "string" },
+                                      nsh_reading: { type: "number" },
+                                      day_reading: { type: "number" },
+                                      night_reading: { type: "number" },
+                                      peak_reading: { type: "number" }
+                                    }
+                                  }
+                                },
+                                detailed_kWh_usage: {
+                                  type: "array",
+                                  items: {
+                                    type: "object",
+                                    properties: {
+                                      start_read_date: { type: "string" },
+                                      end_read_date: { type: "string" },
+                                      day_kWh: { type: "number" },
+                                      night_kWh: { type: "number" },
+                                      peak_kWh: { type: "number" },
+                                      ev_kWh: { type: "number" }
+                                    }
+                                  }
+                                },
+                                unit_rates: {
+                                  type: "object",
+                                  properties: {
+                                    "24_hour_rate": { type: "number" },
+                                    day: { type: "number" },
+                                    night: { type: "number" },
+                                    peak: { type: "number" },
+                                    ev: { type: "number" },
+                                    nsh: { type: "number" },
+                                    rate_currency: { type: "string", enum: ["cent", "euro"] },
+                                    rate_discount_percentage: { type: "number" }
+                                  }
+                                },
+                                standing_charge: { type: "number" },
+                                standing_charge_currency: { type: "string", enum: ["cent", "euro"] },
+                                standing_charge_period: { type: "string", enum: ["daily", "annual"] },
+                                nsh_standing_charge: { type: "number" },
+                                nsh_standing_charge_currency: { type: "string", enum: ["cent", "euro"] },
+                                nsh_standing_charge_period: { type: "string", enum: ["daily", "annual"] },
+                                pso_levy: { type: "number" }
+                              }
+                            },
+                            financial_information: {
+                              type: "object",
+                              properties: {
+                                total_due: { type: "number" },
+                                amount_due: { type: "number" },
+                                due_date: { type: "string" },
+                                payment_due_date: { type: "string" }
+                              }
+                            }
+                          },
+                          additionalProperties: false
+                        }
+                      },
+                      gas: {
+                        type: "array",
+                        items: {
+                          type: "object",
+                          properties: {
+                            gas_details: {
+                              type: "object",
+                              properties: {
+                                invoice_number: { type: "string" },
+                                account_number: { type: "string" },
+                                contract_end_date: { type: "string" },
+                                meter_details: {
+                                  type: "object",
+                                  properties: {
+                                    gprn: { type: "string" }
+                                  }
+                                }
+                              }
+                            },
+                            supplier_details: {
+                              type: "object",
+                              properties: {
+                                name: { type: "string" },
+                                tariff_name: { type: "string" },
+                                issue_date: { type: "string" },
+                                billing_period: { type: "string" }
+                              }
+                            },
+                            charges_and_usage: {
+                              type: "object",
+                              properties: {
+                                meter_readings: {
+                                  type: "array",
+                                  items: {
+                                    type: "object",
+                                    properties: {
+                                      meter_type: { type: "string" },
+                                      date: { type: "string" },
+                                      reading: { type: "number" }
+                                    }
+                                  }
+                                },
+                                unit_rates: {
+                                  type: "object",
+                                  properties: {
+                                    rate: { type: "number" },
+                                    rate_currency: { type: "string", enum: ["cent", "euro"] }
+                                  }
+                                },
+                                standing_charge: { type: "number" },
+                                standing_charge_currency: { type: "string", enum: ["cent", "euro"] },
+                                standing_charge_period: { type: "string", enum: ["daily", "annual"] },
+                                carbon_tax: { type: "number" }
+                              }
+                            },
+                            financial_information: {
+                              type: "object",
+                              properties: {
+                                total_due: { type: "number" },
+                                amount_due: { type: "number" },
+                                due_date: { type: "string" },
+                                payment_due_date: { type: "string" }
+                              }
+                            }
+                          },
+                          additionalProperties: false
+                        }
+                      },
+                      broadband: {
+                        type: "array",
+                        items: {
+                          type: "object",
+                          properties: {
+                            broadband_details: {
+                              type: "object",
+                              properties: {
+                                account_number: { type: "string" },
+                                phone_numbers: {
+                                  type: "array",
+                                  items: { type: "string" }
+                                }
+                              }
+                            },
+                            supplier_details: {
+                              type: "object",
+                              properties: {
+                                name: { type: "string" },
+                                tariff_name: { type: "string" },
+                                issue_date: { type: "string" },
+                                billing_period: { type: "string" }
+                              }
+                            },
+                            service_details: {
+                              type: "object",
+                              properties: {
+                                broadband_number: { type: "string" },
+                                uan_number: { type: "string" },
+                                connection_type: { type: "string" },
+                                home_phone_number: { type: "string" },
+                                mobile_phone_numbers: {
+                                  type: "array",
+                                  items: { type: "string" }
+                                },
+                                utility_types: {
+                                  type: "array",
+                                  items: { type: "string" }
+                                }
+                              }
+                            },
+                            package_information: {
+                              type: "object",
+                              properties: {
+                                package_name: { type: "string" },
+                                contract_changes: { type: "string" },
+                                contract_end_date: { type: "string" },
+                                what_s_included: {
+                                  type: "object",
+                                  properties: {
+                                    calls: { type: "string" },
+                                    usage: { type: "string" },
+                                    bandwidth: { type: "string" },
+                                    usage_minutes: { type: "string" },
+                                    int_call_packages: { type: "string" },
+                                    local_national_calls: { type: "string" }
+                                  }
+                                }
+                              }
+                            },
+                            financial_information: {
+                              type: "object",
+                              properties: {
+                                previous_bill_amount: { type: "number" },
+                                total_due: { type: "number" },
+                                amount_due: { type: "number" },
+                                due_date: { type: "string" },
+                                payment_due_date: { type: "string" },
+                                payment_method: { type: "string" },
+                                payments_received: { type: "string" },
+                                bank_details: {
+                                  type: "object",
+                                  properties: {
+                                    iban: { type: "string" },
+                                    bic: { type: "string" }
+                                  }
+                                }
+                              }
+                            }
+                          },
+                          additionalProperties: false
+                        }
+                      }
                     },
                     required: ["cus_details", "electricity", "gas", "broadband"],
                     additionalProperties: true

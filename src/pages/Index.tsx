@@ -220,10 +220,10 @@ const Index = () => {
                 {result.ok ? "✓ All API calls successful" : "⚠ Some API calls failed"}
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
+            <CardContent className="space-y-6">
               {result.services_detected && (
                 <div>
-                  <h4 className="font-semibold mb-2">Services Detected:</h4>
+                  <h4 className="font-semibold mb-2 text-base">Services Detected:</h4>
                   <div className="flex gap-2">
                     {result.services_detected.electricity && (
                       <span className="px-3 py-1 bg-yellow-500/20 text-yellow-700 dark:text-yellow-300 rounded-full text-sm">
@@ -244,43 +244,65 @@ const Index = () => {
                 </div>
               )}
 
-              {result.api_calls && result.api_calls.length > 0 && (
-                <div>
-                  <h4 className="font-semibold mb-2">API Calls:</h4>
-                  {result.api_calls.map((call: any, idx: number) => (
-                    <div key={idx} className="mb-3 p-3 bg-muted rounded-lg">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className={`text-xs font-medium ${call.ok ? 'text-green-600' : 'text-red-600'}`}>
-                          {call.ok ? '✓' : '✗'}
-                        </span>
-                        <span className="font-medium">{call.type}</span>
-                        <span className="text-sm text-muted-foreground">({call.status})</span>
-                      </div>
-                      <div className="text-xs text-muted-foreground mb-1">{call.endpoint}</div>
-                      {call.response && (
-                        <pre className="text-xs bg-background p-2 rounded mt-2 overflow-auto max-h-32">
-                          {call.response}
-                        </pre>
-                      )}
-                      {call.error && (
-                        <div className="text-xs text-red-600 mt-2">{call.error}</div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              <div>
-                <h4 className="font-semibold mb-2">Parsed Data:</h4>
-                <pre className="bg-muted p-4 rounded-lg overflow-auto text-sm max-h-96">
+              <div className="border-t pt-6">
+                <h4 className="font-semibold mb-3 text-lg">Complete Parsed JSON</h4>
+                <p className="text-xs text-muted-foreground mb-3">This is the full structured data sent to the OneBill API</p>
+                <pre className="bg-muted p-4 rounded-lg overflow-auto text-xs max-h-[500px] border">
                   {JSON.stringify(result.parsed_data || result.data, null, 2)}
                 </pre>
               </div>
 
+              {result.api_calls && result.api_calls.length > 0 && (
+                <div className="border-t pt-6">
+                  <h4 className="font-semibold mb-3 text-lg">OneBill API Responses</h4>
+                  <div className="space-y-3">
+                    {result.api_calls.map((call: any, idx: number) => (
+                      <div key={idx} className="p-4 bg-muted rounded-lg border">
+                        <div className="flex items-center justify-between mb-3">
+                          <div className="flex items-center gap-3">
+                            <span className={`text-lg ${call.ok ? 'text-green-600' : 'text-red-600'}`}>
+                              {call.ok ? '✓' : '✗'}
+                            </span>
+                            <div>
+                              <div className="font-semibold capitalize">{call.type} Service</div>
+                              <div className="text-xs text-muted-foreground">HTTP {call.status}</div>
+                            </div>
+                          </div>
+                          <span className={`px-3 py-1 rounded text-xs font-medium ${
+                            call.ok 
+                              ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' 
+                              : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
+                          }`}>
+                            {call.ok ? 'Success' : 'Failed'}
+                          </span>
+                        </div>
+                        <div className="text-xs text-muted-foreground mb-2 font-mono">
+                          {call.endpoint}
+                        </div>
+                        {call.response && (
+                          <div className="mt-3 p-3 bg-background rounded border">
+                            <div className="text-xs font-semibold mb-2">Response:</div>
+                            <pre className="text-xs overflow-auto max-h-40 text-muted-foreground">
+                              {call.response}
+                            </pre>
+                          </div>
+                        )}
+                        {call.error && (
+                          <div className="mt-3 p-3 bg-red-50 dark:bg-red-900/20 rounded border border-red-200 dark:border-red-800">
+                            <div className="text-xs font-semibold text-red-800 dark:text-red-200 mb-2">Error:</div>
+                            <div className="text-xs text-red-700 dark:text-red-300">{call.error}</div>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {result?.input_type && (
-                <div>
-                  <h4 className="font-semibold mb-2">Debug Info:</h4>
-                  <pre className="bg-muted p-4 rounded-lg overflow-auto text-sm">
+                <div className="border-t pt-6">
+                  <h4 className="font-semibold mb-3 text-base">Debug Info</h4>
+                  <pre className="bg-muted p-3 rounded-lg overflow-auto text-xs">
                     {JSON.stringify({
                       input_type: result.input_type,
                       used_conversion: result.used_conversion,
