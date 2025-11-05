@@ -7,6 +7,9 @@ import { Loader2, Upload } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { ParsingProgress } from "@/components/ParsingProgress";
 import { renderPdfFirstPageToBlob } from "@/lib/pdf-to-image";
+import { ElectricityBillBreakdown } from "@/components/ElectricityBillBreakdown";
+import { GasBillBreakdown } from "@/components/GasBillBreakdown";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 const Index = () => {
   const [phone, setPhone] = useState("");
@@ -215,7 +218,7 @@ const Index = () => {
         {result && (
           <Card>
             <CardHeader>
-              <CardTitle>Results</CardTitle>
+              <CardTitle>Parsing Results</CardTitle>
               <CardDescription>
                 {result.ok ? "✓ All API calls successful" : "⚠ Some API calls failed"}
               </CardDescription>
@@ -244,73 +247,113 @@ const Index = () => {
                 </div>
               )}
 
-              <div className="border-t pt-6">
-                <h4 className="font-semibold mb-3 text-lg">Complete Parsed JSON</h4>
-                <p className="text-xs text-muted-foreground mb-3">This is the full structured data sent to the OneBill API</p>
-                <pre className="bg-muted p-4 rounded-lg overflow-auto text-xs max-h-[500px] border">
-                  {JSON.stringify(result.parsed_data || result.data, null, 2)}
-                </pre>
-              </div>
+              <Tabs defaultValue="breakdown" className="w-full">
+                <TabsList className="grid w-full grid-cols-3">
+                  <TabsTrigger value="breakdown">📊 Breakdown</TabsTrigger>
+                  <TabsTrigger value="api">🔗 API Calls</TabsTrigger>
+                  <TabsTrigger value="json">📄 Raw JSON</TabsTrigger>
+                </TabsList>
 
-              {result.api_calls && result.api_calls.length > 0 && (
-                <div className="border-t pt-6">
-                  <h4 className="font-semibold mb-3 text-lg">OneBill API Responses</h4>
-                  <div className="space-y-3">
-                    {result.api_calls.map((call: any, idx: number) => (
-                      <div key={idx} className="p-4 bg-muted rounded-lg border">
-                        <div className="flex items-center justify-between mb-3">
-                          <div className="flex items-center gap-3">
-                            <span className={`text-lg ${call.ok ? 'text-green-600' : 'text-red-600'}`}>
-                              {call.ok ? '✓' : '✗'}
-                            </span>
-                            <div>
-                              <div className="font-semibold capitalize">{call.type} Service</div>
-                              <div className="text-xs text-muted-foreground">HTTP {call.status}</div>
+                <TabsContent value="breakdown" className="space-y-6 mt-6">
+                  {result.parsed_data?.bills?.electricity && result.parsed_data.bills.electricity.length > 0 && (
+                    <ElectricityBillBreakdown data={result.parsed_data.bills.electricity} />
+                  )}
+
+                  {result.parsed_data?.bills?.gas && result.parsed_data.bills.gas.length > 0 && (
+                    <GasBillBreakdown data={result.parsed_data.bills.gas} />
+                  )}
+
+                  {(!result.parsed_data?.bills?.electricity || result.parsed_data.bills.electricity.length === 0) &&
+                   (!result.parsed_data?.bills?.gas || result.parsed_data.bills.gas.length === 0) && (
+                    <div className="text-center text-muted-foreground py-8">
+                      No electricity or gas bill data available to display
+                    </div>
+                  )}
+                </TabsContent>
+
+                <TabsContent value="api" className="mt-6">
+                  {result.api_calls && result.api_calls.length > 0 ? (
+                    <div className="space-y-3">
+                      {result.api_calls.map((call: any, idx: number) => (
+                        <Card key={idx} className="border">
+                          <CardContent className="p-4">
+                            <div className="flex items-center justify-between mb-3">
+                              <div className="flex items-center gap-3">
+                                <span className={`text-lg ${call.ok ? 'text-green-600' : 'text-red-600'}`}>
+                                  {call.ok ? '✓' : '✗'}
+                                </span>
+                                <div>
+                                  <div className="font-semibold capitalize">{call.type} Service</div>
+                                  <div className="text-xs text-muted-foreground">HTTP {call.status}</div>
+                                </div>
+                              </div>
+                              <span className={`px-3 py-1 rounded text-xs font-medium ${
+                                call.ok 
+                                  ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' 
+                                  : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
+                              }`}>
+                                {call.ok ? 'Success' : 'Failed'}
+                              </span>
                             </div>
-                          </div>
-                          <span className={`px-3 py-1 rounded text-xs font-medium ${
-                            call.ok 
-                              ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' 
-                              : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
-                          }`}>
-                            {call.ok ? 'Success' : 'Failed'}
-                          </span>
-                        </div>
-                        <div className="text-xs text-muted-foreground mb-2 font-mono">
-                          {call.endpoint}
-                        </div>
-                        {call.response && (
-                          <div className="mt-3 p-3 bg-background rounded border">
-                            <div className="text-xs font-semibold mb-2">Response:</div>
-                            <pre className="text-xs overflow-auto max-h-40 text-muted-foreground">
-                              {call.response}
-                            </pre>
-                          </div>
-                        )}
-                        {call.error && (
-                          <div className="mt-3 p-3 bg-red-50 dark:bg-red-900/20 rounded border border-red-200 dark:border-red-800">
-                            <div className="text-xs font-semibold text-red-800 dark:text-red-200 mb-2">Error:</div>
-                            <div className="text-xs text-red-700 dark:text-red-300">{call.error}</div>
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
+                            <div className="text-xs text-muted-foreground mb-2 font-mono">
+                              {call.endpoint}
+                            </div>
+                            {call.response && (
+                              <div className="mt-3 p-3 bg-muted rounded border">
+                                <div className="text-xs font-semibold mb-2">Response:</div>
+                                <pre className="text-xs overflow-auto max-h-40 text-muted-foreground">
+                                  {call.response}
+                                </pre>
+                              </div>
+                            )}
+                            {call.error && (
+                              <div className="mt-3 p-3 bg-red-50 dark:bg-red-900/20 rounded border border-red-200 dark:border-red-800">
+                                <div className="text-xs font-semibold text-red-800 dark:text-red-200 mb-2">Error:</div>
+                                <div className="text-xs text-red-700 dark:text-red-300">{call.error}</div>
+                              </div>
+                            )}
+                          </CardContent>
+                        </Card>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-center text-muted-foreground py-8">
+                      No API calls were made
+                    </div>
+                  )}
+                </TabsContent>
+
+                <TabsContent value="json" className="mt-6">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-base">Complete Parsed JSON</CardTitle>
+                      <CardDescription>Full structured data sent to OneBill API</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <pre className="bg-muted p-4 rounded-lg overflow-auto text-xs max-h-[600px] border">
+                        {JSON.stringify(result.parsed_data || result.data, null, 2)}
+                      </pre>
+                    </CardContent>
+                  </Card>
+                </TabsContent>
+              </Tabs>
 
               {result?.input_type && (
-                <div className="border-t pt-6">
-                  <h4 className="font-semibold mb-3 text-base">Debug Info</h4>
-                  <pre className="bg-muted p-3 rounded-lg overflow-auto text-xs">
-                    {JSON.stringify({
-                      input_type: result.input_type,
-                      used_conversion: result.used_conversion,
-                      visual_input_count: result.visual_input_count,
-                      visual_inputs_sample: result.visual_inputs_sample,
-                    }, null, 2)}
-                  </pre>
-                </div>
+                <Card className="mt-6">
+                  <CardHeader>
+                    <CardTitle className="text-base">Debug Information</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <pre className="bg-muted p-3 rounded-lg overflow-auto text-xs">
+                      {JSON.stringify({
+                        input_type: result.input_type,
+                        used_conversion: result.used_conversion,
+                        visual_input_count: result.visual_input_count,
+                        visual_inputs_sample: result.visual_inputs_sample,
+                      }, null, 2)}
+                    </pre>
+                  </CardContent>
+                </Card>
               )}
             </CardContent>
           </Card>
