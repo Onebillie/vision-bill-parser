@@ -9,6 +9,9 @@ import { ParsingProgress } from "@/components/ParsingProgress";
 import { renderPdfFirstPageToBlob } from "@/lib/pdf-to-image";
 import { ElectricityBillBreakdown } from "@/components/ElectricityBillBreakdown";
 import { GasBillBreakdown } from "@/components/GasBillBreakdown";
+import { BroadbandBreakdown } from "@/components/BroadbandBreakdown";
+import { CustomerDetailsBreakdown } from "@/components/CustomerDetailsBreakdown";
+import { AllFieldsDebugView } from "@/components/AllFieldsDebugView";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 const Index = () => {
@@ -247,12 +250,18 @@ const Index = () => {
                 </div>
               )}
 
-              <Tabs defaultValue="breakdown" className="w-full">
-                <TabsList className="grid w-full grid-cols-3">
+              <Tabs defaultValue="customer" className="w-full">
+                <TabsList className="grid w-full grid-cols-5">
+                  <TabsTrigger value="customer">👤 Customer</TabsTrigger>
                   <TabsTrigger value="breakdown">📊 Breakdown</TabsTrigger>
+                  <TabsTrigger value="all-fields">🔍 All Fields</TabsTrigger>
                   <TabsTrigger value="api">🔗 API Calls</TabsTrigger>
                   <TabsTrigger value="json">📄 Raw JSON</TabsTrigger>
                 </TabsList>
+
+                <TabsContent value="customer" className="space-y-6 mt-6">
+                  <CustomerDetailsBreakdown data={result.parsed_data} />
+                </TabsContent>
 
                 <TabsContent value="breakdown" className="space-y-6 mt-6">
                   {result.parsed_data?.bills?.electricity && result.parsed_data.bills.electricity.length > 0 && (
@@ -263,12 +272,21 @@ const Index = () => {
                     <GasBillBreakdown data={result.parsed_data.bills.gas} />
                   )}
 
+                  {result.parsed_data?.bills?.broadband && result.parsed_data.bills.broadband.length > 0 && (
+                    <BroadbandBreakdown data={result.parsed_data.bills.broadband} />
+                  )}
+
                   {(!result.parsed_data?.bills?.electricity || result.parsed_data.bills.electricity.length === 0) &&
-                   (!result.parsed_data?.bills?.gas || result.parsed_data.bills.gas.length === 0) && (
+                   (!result.parsed_data?.bills?.gas || result.parsed_data.bills.gas.length === 0) &&
+                   (!result.parsed_data?.bills?.broadband || result.parsed_data.bills.broadband.length === 0) && (
                     <div className="text-center text-muted-foreground py-8">
-                      No electricity or gas bill data available to display
+                      No bill data available to display
                     </div>
                   )}
+                </TabsContent>
+
+                <TabsContent value="all-fields" className="mt-6">
+                  <AllFieldsDebugView data={result.parsed_data} />
                 </TabsContent>
 
                 <TabsContent value="api" className="mt-6">
