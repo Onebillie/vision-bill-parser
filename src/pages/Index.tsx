@@ -6,6 +6,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Loader2, Upload } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { ParsingProgress } from "@/components/ParsingProgress";
+import { renderPdfFirstPageToBlob } from "@/lib/pdf-to-image";
 
 const Index = () => {
   const [phone, setPhone] = useState("");
@@ -22,14 +23,26 @@ const Index = () => {
     setProgressStep("uploading");
     
     try {
-      const fileExt = file.name.split('.').pop();
+      let fileToUpload: File = file;
+      const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+      if (isPdf) {
+        try {
+          const pngBlob = await renderPdfFirstPageToBlob(file, 1800);
+          fileToUpload = new File([pngBlob], `${Date.now()}.png`, { type: 'image/png' });
+        } catch (e) {
+          console.warn('PDF to image conversion failed, uploading original PDF instead', e);
+          fileToUpload = file; // fallback
+        }
+      }
+
+      const fileExt = fileToUpload.name.split('.').pop();
       const fileName = `${Date.now()}.${fileExt}`;
       const filePath = fileName;
 
       const { error: uploadError } = await supabase.storage
         .from('bills')
-        .upload(filePath, file, {
-          contentType: file.type,
+        .upload(filePath, fileToUpload, {
+          contentType: fileToUpload.type,
           upsert: true
         });
 
@@ -37,7 +50,7 @@ const Index = () => {
 
       toast({
         title: "Upload complete",
-        description: "File uploaded successfully. Parsing now..."
+        description: isPdf ? "Converted PDF and uploaded image. Parsing now..." : "File uploaded successfully. Parsing now..."
       });
 
       // Auto-parse after upload
@@ -222,6 +235,19 @@ const Index = () => {
                   {result.api_response}
                 </pre>
               </div>
+              {result?.input_type && (
+                <div>
+                  <h4 className="font-semibold mb-2">Debug:</h4>
+                  <pre className="bg-muted p-4 rounded-lg overflow-auto text-sm">
+                    {JSON.stringify({
+                      input_type: result.input_type,
+                      used_conversion: result.used_conversion,
+                      visual_input_count: result.visual_input_count,
+                      visual_inputs_sample: result.visual_inputs_sample,
+                    }, null, 2)}
+                  </pre>
+                </div>
+              )}
             </CardContent>
           </Card>
         )}

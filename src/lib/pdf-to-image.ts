@@ -6,7 +6,7 @@ import * as pdfjsLib from 'pdfjs-dist';
 // Configure worker from CDN to work reliably with Vite
 // Note: lock version to match installed pdfjs-dist
 (pdfjsLib as any).GlobalWorkerOptions.workerSrc =
-  'https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+  'https://unpkg.com/pdfjs-dist@5.4.394/build/pdf.worker.min.mjs';
 
 export async function renderPdfFirstPageToBlob(file: File, maxWidth = 1400): Promise<Blob> {
   const arrayBuffer = await file.arrayBuffer();
