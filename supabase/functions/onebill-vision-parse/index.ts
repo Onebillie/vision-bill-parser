@@ -88,35 +88,17 @@ async function convertPdfToStorageUrls(pdfUrl: string): Promise<string[]> {
   }
 }
 
-const PARSE_PROMPT = `You are OneBill AI for Irish utility documents.
+const PARSE_PROMPT = `Parse a single Irish customer bill from the page images provided. Bills may bundle utilities (electricity and gas). Detect which utilities are present and disaggregate them. Return ONE JSON object only. No prose or notes.
 
-Analyze this image and determine what type it is:
-1. METER READING: A photo of an electricity or gas meter showing current readings
-2. GAS BILL: A document/bill from a gas supplier with GPRN and usage details
-3. ELECTRICITY BILL: A document/bill from electricity supplier with MPRN, MCC, and DG details
-
-Extract relevant information based on type:
-
-For METER READING:
-- meter_type: "electricity" or "gas"
-- reading_value: the current meter reading number
-- meter_number: meter serial/ID if visible
-
-For GAS BILL:
-- gprn: Gas Point Registration Number (format: xxxxxxxx)
-- supplier_name: Gas supplier company name
-- account_number: Customer account number
-- meter_readings: array of readings with dates and values
-
-For ELECTRICITY BILL:
-- mprn: Meter Point Registration Number (format: xxxxxxxxxx)
-- mcc_type: Market Category Code (e.g., "Domestic", "Commercial")
-- dg_type: Deemed Group type (e.g., "DG1", "DG2", "DG3")
-- supplier_name: Electricity supplier company name
-- account_number: Customer account number
-- meter_readings: array of readings with dates and values
-
-Be precise with meter identifiers (GPRN, MPRN) and extract them exactly as shown.`;
+Rules:
+- Dates: "YYYY-MM-DD"; unknown → "0000-00-00".
+- Numbers (rates/amounts/readings): numeric; unknown → 0.
+- Booleans: true/false (not strings).
+- Currencies: "cent" or "euro".
+- Standing charge period: "daily" or "annual".
+- Always include all top-level sections; if a utility is not present, return its array as [].
+- Detect utilities using strong signals (MPRN/MCC/DG ⇒ electricity; GPRN/carbon tax ⇒ gas; broadband cues for broadband).
+- Do not rename, add, or remove keys.`;
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -191,53 +173,64 @@ serve(async (req) => {
       body: JSON.stringify({
         model: "google/gemini-2.5-pro",
         messages: [{ role: "user", content }],
+        temperature: 0,
         tools: [{
           type: "function",
           function: {
-            name: "classify_and_extract",
-            description: "Classify document type and extract relevant data",
+            name: "parse_irish_bill",
+            description: "Parse Irish utility bill and return structured data",
             parameters: {
               type: "object",
               properties: {
-                document_type: {
-                  type: "string",
-                  enum: ["meter_reading", "gas_bill", "electricity_bill"],
-                  description: "Type of document detected"
-                },
-                meter_reading: {
+                bills: {
                   type: "object",
                   properties: {
-                    meter_type: { type: "string", enum: ["electricity", "gas"] },
-                    reading_value: { type: "number" },
-                    meter_number: { type: "string" }
-                  }
-                },
-                gas_bill: {
-                  type: "object",
-                  properties: {
-                    gprn: { type: "string" },
-                    supplier_name: { type: "string" },
-                    account_number: { type: "string" },
-                    meter_readings: { type: "array", items: { type: "object" } }
-                  }
-                },
-                electricity_bill: {
-                  type: "object",
-                  properties: {
-                    mprn: { type: "string" },
-                    mcc_type: { type: "string" },
-                    dg_type: { type: "string" },
-                    supplier_name: { type: "string" },
-                    account_number: { type: "string" },
-                    meter_readings: { type: "array", items: { type: "object" } }
-                  }
+                    cus_details: { 
+                      type: "array", 
+                      items: { 
+                        type: "object",
+                        properties: {
+                          details: {
+                            type: "object",
+                            properties: {
+                              customer_name: { type: "string" },
+                              address: {
+                                type: "object",
+                                properties: {
+                                  line_1: { type: "string" },
+                                  line_2: { type: "string" },
+                                  city: { type: "string" },
+                                  county: { type: "string" },
+                                  eircode: { type: "string" }
+                                }
+                              }
+                            }
+                          },
+                          services: {
+                            type: "object",
+                            properties: {
+                              gas: { type: "boolean" },
+                              broadband: { type: "boolean" },
+                              electricity: { type: "boolean" }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    electricity: { type: "array", items: { type: "object", additionalProperties: true } },
+                    gas: { type: "array", items: { type: "object", additionalProperties: true } },
+                    broadband: { type: "array", items: { type: "object", additionalProperties: true } }
+                  },
+                  required: ["cus_details", "electricity", "gas", "broadband"],
+                  additionalProperties: true
                 }
               },
-              required: ["document_type"]
+              required: ["bills"],
+              additionalProperties: false
             }
           }
         }],
-        tool_choice: { type: "function", function: { name: "classify_and_extract" } }
+        tool_choice: { type: "function", function: { name: "parse_irish_bill" } }
       }),
     });
 
@@ -276,53 +269,64 @@ serve(async (req) => {
         body: JSON.stringify({
           model: "google/gemini-2.5-pro",
           messages: [{ role: "user", content: retryContent }],
+          temperature: 0,
           tools: [{
             type: "function",
             function: {
-              name: "classify_and_extract",
-              description: "Classify document type and extract relevant data",
+              name: "parse_irish_bill",
+              description: "Parse Irish utility bill and return structured data",
               parameters: {
                 type: "object",
                 properties: {
-                  document_type: {
-                    type: "string",
-                    enum: ["meter_reading", "gas_bill", "electricity_bill"],
-                    description: "Type of document detected"
-                  },
-                  meter_reading: {
+                  bills: {
                     type: "object",
                     properties: {
-                      meter_type: { type: "string", enum: ["electricity", "gas"] },
-                      reading_value: { type: "number" },
-                      meter_number: { type: "string" }
-                    }
-                  },
-                  gas_bill: {
-                    type: "object",
-                    properties: {
-                      gprn: { type: "string" },
-                      supplier_name: { type: "string" },
-                      account_number: { type: "string" },
-                      meter_readings: { type: "array", items: { type: "object" } }
-                    }
-                  },
-                  electricity_bill: {
-                    type: "object",
-                    properties: {
-                      mprn: { type: "string" },
-                      mcc_type: { type: "string" },
-                      dg_type: { type: "string" },
-                      supplier_name: { type: "string" },
-                      account_number: { type: "string" },
-                      meter_readings: { type: "array", items: { type: "object" } }
-                    }
+                      cus_details: { 
+                        type: "array", 
+                        items: { 
+                          type: "object",
+                          properties: {
+                            details: {
+                              type: "object",
+                              properties: {
+                                customer_name: { type: "string" },
+                                address: {
+                                  type: "object",
+                                  properties: {
+                                    line_1: { type: "string" },
+                                    line_2: { type: "string" },
+                                    city: { type: "string" },
+                                    county: { type: "string" },
+                                    eircode: { type: "string" }
+                                  }
+                                }
+                              }
+                            },
+                            services: {
+                              type: "object",
+                              properties: {
+                                gas: { type: "boolean" },
+                                broadband: { type: "boolean" },
+                                electricity: { type: "boolean" }
+                              }
+                            }
+                          }
+                        }
+                      },
+                      electricity: { type: "array", items: { type: "object", additionalProperties: true } },
+                      gas: { type: "array", items: { type: "object", additionalProperties: true } },
+                      broadband: { type: "array", items: { type: "object", additionalProperties: true } }
+                    },
+                    required: ["cus_details", "electricity", "gas", "broadband"],
+                    additionalProperties: true
                   }
                 },
-                required: ["document_type"]
+                required: ["bills"],
+                additionalProperties: false
               }
             }
           }],
-          tool_choice: { type: "function", function: { name: "classify_and_extract" } }
+          tool_choice: { type: "function", function: { name: "parse_irish_bill" } }
         }),
       });
     }
@@ -353,89 +357,124 @@ serve(async (req) => {
     }
 
     const parsedData = JSON.parse(toolCall.function.arguments);
-    console.log("Parsed document:", parsedData.document_type);
+    console.log("Parsed bill data received");
 
-    // Prepare form data for ONEBILL API
-    const formData = new FormData();
-    formData.append("phone", phone);
-    
-    // Get the original file from storage (use first converted URL if we converted)
-    const fileToSend = usedConversion ? imageUrls[0] : fileUrl;
-    const fileBlob = await fetch(fileToSend).then(r => r.blob());
-    const fileName = fileToSend.split('/').pop() || 'document';
-    formData.append("file", fileBlob, fileName);
-
-    let apiEndpoint = "";
-    let apiResponse;
-
-    // Route based on document type
-    switch (parsedData.document_type) {
-      case "meter_reading":
-        console.log("Routing to meter API");
-        apiEndpoint = "https://api.onebill.ie/api/meter-file";
-        apiResponse = await fetch(apiEndpoint, {
-          method: "POST",
-          headers: {
-            "Authorization": `Bearer ${ONEBILL_API_KEY}`
-          },
-          body: formData
-        });
-        break;
-
-      case "gas_bill":
-        console.log("Routing to gas bill API");
-        apiEndpoint = "https://api.onebill.ie/api/gas-file";
-        if (parsedData.gas_bill?.gprn) {
-          formData.append("gprn", parsedData.gas_bill.gprn);
-        }
-        apiResponse = await fetch(apiEndpoint, {
-          method: "POST",
-          headers: {
-            "Authorization": `Bearer ${ONEBILL_API_KEY}`
-          },
-          body: formData
-        });
-        break;
-
-      case "electricity_bill":
-        console.log("Routing to electricity bill API");
-        apiEndpoint = "https://api.onebill.ie/api/electricity-file";
-        if (parsedData.electricity_bill?.mprn) {
-          formData.append("mprn", parsedData.electricity_bill.mprn);
-        }
-        if (parsedData.electricity_bill?.mcc_type) {
-          formData.append("mcc_type", parsedData.electricity_bill.mcc_type);
-        }
-        if (parsedData.electricity_bill?.dg_type) {
-          formData.append("dg_type", parsedData.electricity_bill.dg_type);
-        }
-        apiResponse = await fetch(apiEndpoint, {
-          method: "POST",
-          headers: {
-            "Authorization": `Bearer ${ONEBILL_API_KEY}`
-          },
-          body: formData
-        });
-        break;
-
-      default:
-        return new Response(
-          JSON.stringify({ error: "Unknown document type" }),
-          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
+    // Validate and ensure all required sections exist
+    if (!parsedData.bills) {
+      parsedData.bills = {};
+    }
+    if (!parsedData.bills.cus_details) {
+      parsedData.bills.cus_details = [];
+    }
+    if (!parsedData.bills.electricity) {
+      parsedData.bills.electricity = [];
+    }
+    if (!parsedData.bills.gas) {
+      parsedData.bills.gas = [];
+    }
+    if (!parsedData.bills.broadband) {
+      parsedData.bills.broadband = [];
     }
 
-    const apiResult = await apiResponse.text();
-    console.log("ONEBILL API response:", apiResponse.status, apiResult.slice(0, 200));
+    // Check service flags
+    const services = parsedData.bills.cus_details?.[0]?.services;
+    const hasElectricity = services?.electricity === true;
+    const hasGas = services?.gas === true;
+    
+    console.log("Services detected:", { electricity: hasElectricity, gas: hasGas });
+
+    if (!hasElectricity && !hasGas) {
+      return new Response(
+        JSON.stringify({
+          error: "No electricity or gas services detected in bill",
+          parsed_data: parsedData,
+          input_type: isPdf ? "pdf" : "image",
+          used_conversion: usedConversion
+        }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Prepare API calls based on detected services
+    const apiCalls: Array<{ endpoint: string; type: string }> = [];
+    
+    if (hasElectricity) {
+      apiCalls.push({
+        endpoint: "https://api.onebill.ie/api/electricity-file",
+        type: "electricity"
+      });
+    }
+    
+    if (hasGas) {
+      apiCalls.push({
+        endpoint: "https://api.onebill.ie/api/gas-file",
+        type: "gas"
+      });
+    }
+
+    // Call all OneBill API endpoints
+    const MAX_ERROR_LENGTH = 4096;
+    const apiResults = await Promise.all(
+      apiCalls.map(async ({ endpoint, type }) => {
+        try {
+          console.log(`Calling ${type} API:`, endpoint);
+          
+          const apiResponse = await fetch(endpoint, {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${ONEBILL_API_KEY}`,
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify(parsedData)
+          });
+
+          let responseText = "";
+          try {
+            responseText = await apiResponse.text();
+          } catch (e) {
+            responseText = "Failed to read response body";
+          }
+
+          // Truncate error responses
+          const truncatedResponse = responseText.slice(0, MAX_ERROR_LENGTH);
+          
+          console.log(`${type} API response:`, apiResponse.status, truncatedResponse.slice(0, 200));
+
+          return {
+            type,
+            endpoint,
+            status: apiResponse.status,
+            ok: apiResponse.ok,
+            response: truncatedResponse
+          };
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : "Unknown error";
+          console.error(`Error calling ${type} API:`, errorMessage);
+          
+          return {
+            type,
+            endpoint,
+            status: 500,
+            ok: false,
+            error: errorMessage.slice(0, MAX_ERROR_LENGTH)
+          };
+        }
+      })
+    );
+
+    // Check if all API calls succeeded
+    const allSuccessful = apiResults.every(result => result.ok);
 
     return new Response(
       JSON.stringify({
-        ok: apiResponse.ok,
-        data: parsedData,
-        api_endpoint: apiEndpoint,
-        api_status: apiResponse.status,
-        api_response: apiResult,
-        // Debug info
+        ok: allSuccessful,
+        parsed_data: parsedData,
+        services_detected: {
+          electricity: hasElectricity,
+          gas: hasGas,
+          broadband: services?.broadband || false
+        },
+        api_calls: apiResults,
         input_type: isPdf ? "pdf" : "image",
         used_conversion: usedConversion,
         visual_input_count: imageUrls.length,
@@ -447,8 +486,13 @@ serve(async (req) => {
   } catch (error) {
     console.error("Error in onebill-vision-parse:", error);
     const errorMessage = error instanceof Error ? error.message : "Unknown error";
+    const MAX_ERROR_LENGTH = 4096;
+    
     return new Response(
-      JSON.stringify({ error: errorMessage }),
+      JSON.stringify({ 
+        error: errorMessage.slice(0, MAX_ERROR_LENGTH),
+        stack: error instanceof Error ? error.stack?.slice(0, MAX_ERROR_LENGTH) : undefined
+      }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }

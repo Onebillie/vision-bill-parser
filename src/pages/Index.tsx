@@ -217,27 +217,69 @@ const Index = () => {
             <CardHeader>
               <CardTitle>Results</CardTitle>
               <CardDescription>
-                Document Type: {result.data?.document_type} | 
-                API: {result.api_endpoint?.split('/').pop()} | 
-                Status: {result.api_status}
+                {result.ok ? "✓ All API calls successful" : "⚠ Some API calls failed"}
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
+              {result.services_detected && (
+                <div>
+                  <h4 className="font-semibold mb-2">Services Detected:</h4>
+                  <div className="flex gap-2">
+                    {result.services_detected.electricity && (
+                      <span className="px-3 py-1 bg-yellow-500/20 text-yellow-700 dark:text-yellow-300 rounded-full text-sm">
+                        ⚡ Electricity
+                      </span>
+                    )}
+                    {result.services_detected.gas && (
+                      <span className="px-3 py-1 bg-blue-500/20 text-blue-700 dark:text-blue-300 rounded-full text-sm">
+                        🔥 Gas
+                      </span>
+                    )}
+                    {result.services_detected.broadband && (
+                      <span className="px-3 py-1 bg-purple-500/20 text-purple-700 dark:text-purple-300 rounded-full text-sm">
+                        📡 Broadband
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {result.api_calls && result.api_calls.length > 0 && (
+                <div>
+                  <h4 className="font-semibold mb-2">API Calls:</h4>
+                  {result.api_calls.map((call: any, idx: number) => (
+                    <div key={idx} className="mb-3 p-3 bg-muted rounded-lg">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className={`text-xs font-medium ${call.ok ? 'text-green-600' : 'text-red-600'}`}>
+                          {call.ok ? '✓' : '✗'}
+                        </span>
+                        <span className="font-medium">{call.type}</span>
+                        <span className="text-sm text-muted-foreground">({call.status})</span>
+                      </div>
+                      <div className="text-xs text-muted-foreground mb-1">{call.endpoint}</div>
+                      {call.response && (
+                        <pre className="text-xs bg-background p-2 rounded mt-2 overflow-auto max-h-32">
+                          {call.response}
+                        </pre>
+                      )}
+                      {call.error && (
+                        <div className="text-xs text-red-600 mt-2">{call.error}</div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+
               <div>
-                <h4 className="font-semibold mb-2">Extracted Data:</h4>
-                <pre className="bg-muted p-4 rounded-lg overflow-auto text-sm">
-                  {JSON.stringify(result.data, null, 2)}
+                <h4 className="font-semibold mb-2">Parsed Data:</h4>
+                <pre className="bg-muted p-4 rounded-lg overflow-auto text-sm max-h-96">
+                  {JSON.stringify(result.parsed_data || result.data, null, 2)}
                 </pre>
               </div>
-              <div>
-                <h4 className="font-semibold mb-2">API Response:</h4>
-                <pre className="bg-muted p-4 rounded-lg overflow-auto text-sm">
-                  {result.api_response}
-                </pre>
-              </div>
+
               {result?.input_type && (
                 <div>
-                  <h4 className="font-semibold mb-2">Debug:</h4>
+                  <h4 className="font-semibold mb-2">Debug Info:</h4>
                   <pre className="bg-muted p-4 rounded-lg overflow-auto text-sm">
                     {JSON.stringify({
                       input_type: result.input_type,
