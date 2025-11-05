@@ -5,6 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, Upload } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { ParsingProgress } from "@/components/ParsingProgress";
 
 const Index = () => {
   const [imageUrl, setImageUrl] = useState("");
@@ -13,11 +14,13 @@ const Index = () => {
   const [uploading, setUploading] = useState(false);
   const [result, setResult] = useState<any>(null);
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
+  const [progressStep, setProgressStep] = useState<"idle" | "uploading" | "analyzing" | "sending" | "complete" | "error">("idle");
   const { toast } = useToast();
 
   const handleFileUpload = async (file: File) => {
     setUploading(true);
     setUploadedFile(file);
+    setProgressStep("uploading");
     
     try {
       const fileExt = file.name.split('.').pop();
@@ -38,6 +41,7 @@ const Index = () => {
       // Auto-parse after upload
       await handleParse(undefined, filePath);
     } catch (error: any) {
+      setProgressStep("error");
       toast({
         title: "Upload failed",
         description: error.message,
@@ -71,8 +75,12 @@ const Index = () => {
 
     setLoading(true);
     setResult(null);
+    if (!filePath) {
+      setProgressStep("uploading");
+    }
 
     try {
+      setProgressStep("analyzing");
       const payload: any = { phone };
       if (filePath) {
         payload.file_path = filePath;
@@ -92,23 +100,32 @@ const Index = () => {
         }
       );
 
+      setProgressStep("sending");
       const data = await response.json();
 
       if (!response.ok) {
         throw new Error(data.error || "Parse failed");
       }
 
+      setProgressStep("complete");
       setResult(data);
       toast({
         title: "Success",
         description: data.ok ? "Sent to ONEBILL API successfully!" : "Parsed but API call failed"
       });
+      
+      // Reset progress after 2 seconds
+      setTimeout(() => setProgressStep("idle"), 2000);
     } catch (error: any) {
+      setProgressStep("error");
       toast({
         title: "Error",
         description: error.message || "Failed to parse document",
         variant: "destructive"
       });
+      
+      // Reset progress after 3 seconds
+      setTimeout(() => setProgressStep("idle"), 3000);
     } finally {
       setLoading(false);
     }
@@ -224,6 +241,8 @@ const Index = () => {
             )}
           </CardContent>
         </Card>
+
+        <ParsingProgress currentStep={progressStep} />
 
         {result && (
           <Card>
