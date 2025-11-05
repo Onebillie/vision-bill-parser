@@ -2,12 +2,11 @@ import { CheckCircle2, Circle, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface ParsingProgressProps {
-  currentStep: "idle" | "uploading" | "converting" | "analyzing" | "sending" | "complete" | "error";
+  currentStep: "idle" | "uploading" | "analyzing" | "sending" | "complete" | "error";
 }
 
 const steps = [
   { id: "uploading", label: "Uploading file" },
-  { id: "converting", label: "Converting PDF" },
   { id: "analyzing", label: "Analyzing document" },
   { id: "sending", label: "Sending to API" },
 ];

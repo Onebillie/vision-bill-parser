@@ -6,7 +6,6 @@ import { useToast } from "@/hooks/use-toast";
 import { Loader2, Upload } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { ParsingProgress } from "@/components/ParsingProgress";
-import { renderPdfFirstPageToBlob } from "@/lib/pdf-to-image";
 
 const Index = () => {
   const [phone, setPhone] = useState("");
@@ -14,7 +13,7 @@ const Index = () => {
   const [uploading, setUploading] = useState(false);
   const [result, setResult] = useState<any>(null);
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
-  const [progressStep, setProgressStep] = useState<"idle" | "uploading" | "converting" | "analyzing" | "sending" | "complete" | "error">("idle");
+  const [progressStep, setProgressStep] = useState<"idle" | "uploading" | "analyzing" | "sending" | "complete" | "error">("idle");
   const { toast } = useToast();
 
   const handleFileUpload = async (file: File) => {
@@ -23,28 +22,22 @@ const Index = () => {
     setProgressStep("uploading");
     
     try {
-      // If PDF, convert first page to PNG client-side
-      let fileToUpload: File = file;
-      const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
-      if (isPdf) {
-        setProgressStep("converting");
-        const pngBlob = await renderPdfFirstPageToBlob(file);
-        fileToUpload = new File([pngBlob], `${Date.now()}.png`, { type: 'image/png' });
-      }
-
-      const fileExt = fileToUpload.name.split('.').pop();
+      const fileExt = file.name.split('.').pop();
       const fileName = `${Date.now()}.${fileExt}`;
       const filePath = fileName;
 
       const { error: uploadError } = await supabase.storage
         .from('bills')
-        .upload(filePath, fileToUpload);
+        .upload(filePath, file, {
+          contentType: file.type,
+          upsert: true
+        });
 
       if (uploadError) throw uploadError;
 
       toast({
         title: "Upload complete",
-        description: isPdf ? "Converted PDF and uploaded image. Parsing now..." : "File uploaded successfully. Ready to parse!"
+        description: "File uploaded successfully. Parsing now..."
       });
 
       // Auto-parse after upload
@@ -87,13 +80,6 @@ const Index = () => {
     }
 
     try {
-      // Show converting step for PDFs
-      const isPdf = filePath && filePath.toLowerCase().endsWith('.pdf');
-      if (isPdf) {
-        setProgressStep("converting");
-        await new Promise(resolve => setTimeout(resolve, 500)); // Brief pause for UX
-      }
-      
       setProgressStep("analyzing");
       const payload: any = { phone, file_path: filePath };
 

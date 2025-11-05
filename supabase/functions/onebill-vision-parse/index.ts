@@ -434,7 +434,12 @@ serve(async (req) => {
         data: parsedData,
         api_endpoint: apiEndpoint,
         api_status: apiResponse.status,
-        api_response: apiResult
+        api_response: apiResult,
+        // Debug info
+        input_type: isPdf ? "pdf" : "image",
+        used_conversion: usedConversion,
+        visual_input_count: imageUrls.length,
+        visual_inputs_sample: imageUrls.slice(0, 2)
       }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
