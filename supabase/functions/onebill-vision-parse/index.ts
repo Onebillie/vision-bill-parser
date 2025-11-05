@@ -169,12 +169,16 @@ serve(async (req) => {
     let { urls: imageUrls, usedConversion } = await getVisualInputs(fileUrl, isPdf);
     console.log(`Parsing with ${imageUrls.length} image(s), conversion: ${usedConversion}`);
 
-    // Build content array with text and images
+    // Build content array with text and images/documents
     const content: any[] = [{ type: "text", text: PARSE_PROMPT }];
     
-    // Add images (max 3 for multi-page bills)
-    for (const imgUrl of imageUrls.slice(0, 3)) {
-      content.push({ type: "image_url", image_url: { url: imgUrl } });
+    // If it's a PDF and we didn't convert yet, send as a document instead of image
+    if (isPdf && !usedConversion) {
+      content.push({ type: "document", document_url: { url: imageUrls[0] } });
+    } else {
+      for (const imgUrl of imageUrls.slice(0, 3)) {
+        content.push({ type: "image_url", image_url: { url: imgUrl } });
+      }
     }
 
     // Call Lovable AI with vision model
