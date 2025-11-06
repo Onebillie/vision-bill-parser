@@ -69,10 +69,11 @@ const Index = () => {
               )}
 
               <Tabs defaultValue="customer" className="w-full">
-                <TabsList className="grid w-full grid-cols-5">
+                <TabsList className="grid w-full grid-cols-6">
                   <TabsTrigger value="customer">👤 Customer</TabsTrigger>
                   <TabsTrigger value="breakdown">📊 Breakdown</TabsTrigger>
                   <TabsTrigger value="all-fields">🔍 All Fields</TabsTrigger>
+                  <TabsTrigger value="payload">📤 API Payload</TabsTrigger>
                   <TabsTrigger value="api">🔗 API Calls</TabsTrigger>
                   <TabsTrigger value="json">📄 Raw JSON</TabsTrigger>
                 </TabsList>
@@ -105,6 +106,20 @@ const Index = () => {
 
                 <TabsContent value="all-fields" className="mt-6">
                   <AllFieldsDebugView data={result.parsed_data} />
+                </TabsContent>
+
+                <TabsContent value="payload" className="mt-6">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-base">API Payload</CardTitle>
+                      <CardDescription>Exact JSON payload sent to OneBill API</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <pre className="bg-muted p-4 rounded-lg overflow-auto text-xs max-h-[600px] border">
+                        {JSON.stringify(result.parsed_data, null, 2)}
+                      </pre>
+                    </CardContent>
+                  </Card>
                 </TabsContent>
 
                 <TabsContent value="api" className="mt-6">
