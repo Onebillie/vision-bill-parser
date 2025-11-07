@@ -1,5 +1,6 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { InfoGrid } from "@/components/InfoGrid";
 
 interface ElectricityBillBreakdownProps {
   data: any;
@@ -18,29 +19,15 @@ export const ElectricityBillBreakdown = ({ data }: ElectricityBillBreakdownProps
           <CardTitle className="text-lg">⚡ Electricity Bill Details</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-2 gap-4 text-sm">
-            <div>
-              <span className="font-semibold">Supplier:</span> {bill.supplier_details?.name || 'N/A'}
-            </div>
-            <div>
-              <span className="font-semibold">Tariff:</span> {bill.supplier_details?.tariff_name || 'N/A'}
-            </div>
-            <div>
-              <span className="font-semibold">Invoice Number:</span> {bill.electricity_details?.invoice_number || 'N/A'}
-            </div>
-            <div>
-              <span className="font-semibold">Account Number:</span> {bill.electricity_details?.account_number || 'N/A'}
-            </div>
-            <div>
-              <span className="font-semibold">Issue Date:</span> {bill.supplier_details?.issue_date || 'N/A'}
-            </div>
-            <div>
-              <span className="font-semibold">Billing Period:</span> {bill.supplier_details?.billing_period || 'N/A'}
-            </div>
-            <div>
-              <span className="font-semibold">Contract End:</span> {bill.electricity_details?.contract_end_date || 'N/A'}
-            </div>
-          </div>
+          <InfoGrid items={[
+            { label: "Supplier", value: bill.supplier_details?.name },
+            { label: "Tariff", value: bill.supplier_details?.tariff_name },
+            { label: "Invoice Number", value: bill.electricity_details?.invoice_number },
+            { label: "Account Number", value: bill.electricity_details?.account_number },
+            { label: "Issue Date", value: bill.supplier_details?.issue_date },
+            { label: "Billing Period", value: bill.supplier_details?.billing_period },
+            { label: "Contract End", value: bill.electricity_details?.contract_end_date }
+          ]} />
         </CardContent>
       </Card>
 
@@ -50,20 +37,12 @@ export const ElectricityBillBreakdown = ({ data }: ElectricityBillBreakdownProps
           <CardTitle className="text-base">Meter Information</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-            <div>
-              <span className="font-semibold">MPRN:</span> {bill.electricity_details?.meter_details?.mprn || 'N/A'}
-            </div>
-            <div>
-              <span className="font-semibold">DG:</span> {bill.electricity_details?.meter_details?.dg || 'N/A'}
-            </div>
-            <div>
-              <span className="font-semibold">MCC:</span> {bill.electricity_details?.meter_details?.mcc || 'N/A'}
-            </div>
-            <div>
-              <span className="font-semibold">Profile:</span> {bill.electricity_details?.meter_details?.profile || 'N/A'}
-            </div>
-          </div>
+          <InfoGrid columns={4} items={[
+            { label: "MPRN", value: bill.electricity_details?.meter_details?.mprn },
+            { label: "DG", value: bill.electricity_details?.meter_details?.dg },
+            { label: "MCC", value: bill.electricity_details?.meter_details?.mcc },
+            { label: "Profile", value: bill.electricity_details?.meter_details?.profile }
+          ]} />
         </CardContent>
       </Card>
 
