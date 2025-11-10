@@ -888,6 +888,19 @@ serve(async (req) => {
       hasGasData
     });
 
+    // Helper functions for normalization
+    const normalizePhone = (p: string) => p.replace(/\s+/g, '');
+    const prefixMcc = (val: string | undefined) => {
+      if (!val) return "";
+      const upper = val.toUpperCase();
+      return upper.startsWith("MCC") ? upper : `MCC${upper}`;
+    };
+    const prefixDg = (val: string | undefined) => {
+      if (!val) return "";
+      const upper = val.toUpperCase();
+      return upper.startsWith("DG") ? upper : `DG${upper}`;
+    };
+
     // Prepare API calls based on classification
     const apiCalls: Array<{ endpoint: string; type: string; payload?: any }> = [];
     
@@ -897,11 +910,10 @@ serve(async (req) => {
         endpoint: "https://api.onebill.ie/api/electricity-file",
         type: "electricity",
         payload: {
-          phone,
+          phone: normalizePhone(phone),
           mprn: mprn || "",
-          mcc_type: mcc || "",
-          dg_type: dg || "",
-          file: fileUrl
+          mcc_type: prefixMcc(mcc),
+          dg_type: prefixDg(dg)
         }
       });
     }
@@ -912,9 +924,8 @@ serve(async (req) => {
         endpoint: "https://api.onebill.ie/api/gas-file",
         type: "gas",
         payload: {
-          phone,
-          gprn: gprn || "",
-          file: fileUrl
+          phone: normalizePhone(phone),
+          gprn: gprn || ""
         }
       });
     }
@@ -968,14 +979,38 @@ serve(async (req) => {
               body: form
             });
           } else if (type === "electricity" || type === "gas") {
-            // Electricity/Gas: JSON payload with extracted fields
+            // Electricity/Gas: Send multipart/form-data with file + extracted fields
+            const form = new FormData();
+            try {
+              const fileResp = await fetch(fileUrl);
+              const arrayBuf = await fileResp.arrayBuffer();
+              const contentType = fileResp.headers.get("content-type") ||
+                (fileUrl.toLowerCase().endsWith(".png") ? "image/png" :
+                 fileUrl.toLowerCase().endsWith(".jpg") || fileUrl.toLowerCase().endsWith(".jpeg") ? "image/jpeg" :
+                 fileUrl.toLowerCase().endsWith(".pdf") ? "application/pdf" :
+                 "application/octet-stream");
+              const fileName = typeof file_path === "string" && file_path.length > 0 ? file_path : "upload.bin";
+              const blob = new Blob([new Uint8Array(arrayBuf)], { type: contentType });
+              form.append("file", blob, fileName);
+            } catch (e) {
+              console.error(`Failed to fetch original file for ${type} upload:`, e);
+              throw e;
+            }
+            
+            // Append text fields from payload
+            for (const [key, value] of Object.entries(payload || {})) {
+              form.append(key, String(value));
+            }
+            
+            console.log(`${type} fields (non-binary):`, JSON.stringify(payload, null, 2));
+
             apiResponse = await fetch(endpoint, {
               method: "POST",
               headers: {
-                "Authorization": `Bearer ${ONEBILL_API_KEY}`,
-                "Content-Type": "application/json"
+                "Authorization": `Bearer ${ONEBILL_API_KEY}`
+                // Do NOT set Content-Type when sending FormData
               },
-              body: JSON.stringify(payload)
+              body: form
             });
           } else {
             throw new Error(`Unknown API type: ${type}`);

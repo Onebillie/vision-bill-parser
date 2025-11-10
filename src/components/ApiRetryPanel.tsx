@@ -47,7 +47,7 @@ export const ApiRetryPanel = ({ failedCalls, phone, filePath, onRetrySuccess }: 
           endpoint: call.endpoint,
           payload,
           phone,
-          file_path: call.type === "meter" ? filePath : undefined,
+          file_path: filePath,
         },
       });
 
@@ -107,6 +107,9 @@ export const ApiRetryPanel = ({ failedCalls, phone, filePath, onRetrySuccess }: 
               <label className="text-sm font-medium mb-2 block">
                 Edit Payload (JSON):
               </label>
+              <p className="text-xs text-muted-foreground mb-2">
+                The binary file is attached automatically. Edit only text fields (phone, mprn, mcc_type, dg_type, gprn).
+              </p>
               <Textarea
                 value={editedPayloads[key]}
                 onChange={(e) => setEditedPayloads(prev => ({ ...prev, [key]: e.target.value }))}

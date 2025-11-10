@@ -89,14 +89,47 @@ serve(async (req) => {
             body: form,
           });
         } else {
-          // electricity / gas
+          // electricity / gas - also use multipart/form-data
+          const form = new FormData();
+
+          // Resolve a URL to fetch the original file
+          let urlToFetch: string | undefined = undefined;
+          if (file_url) {
+            urlToFetch = file_url;
+          } else if (file_path && SUPABASE_URL) {
+            urlToFetch = `${SUPABASE_URL}/storage/v1/object/public/bills/${encodeURIComponent(file_path)}`;
+          }
+
+          if (urlToFetch) {
+            try {
+              const f = await fetch(urlToFetch);
+              const buf = await f.arrayBuffer();
+              const contentType = f.headers.get("content-type") ||
+                (urlToFetch.toLowerCase().endsWith(".png") ? "image/png" :
+                 urlToFetch.toLowerCase().endsWith(".jpg") || urlToFetch.toLowerCase().endsWith(".jpeg") ? "image/jpeg" :
+                 urlToFetch.toLowerCase().endsWith(".pdf") ? "application/pdf" :
+                 "application/octet-stream");
+              const name = typeof file_path === "string" && file_path.length > 0 ? file_path : "upload.bin";
+              const blob = new Blob([new Uint8Array(buf)], { type: contentType });
+              form.append("file", blob, name);
+            } catch (e) {
+              console.error(`${type}-retry: failed to fetch original file:`, e);
+            }
+          }
+
+          // Append text fields from payload
+          for (const [key, value] of Object.entries(payload ?? {})) {
+            form.append(key, String(value));
+          }
+
+          console.log(`${type}-retry fields (non-binary):`, JSON.stringify(payload ?? {}, null, 2));
+
           resp = await fetch(endpoint, {
             method: "POST",
             headers: {
               Authorization: `Bearer ${ONEBILL_API_KEY}`,
-              "Content-Type": "application/json",
             },
-            body: JSON.stringify(payload ?? {}),
+            body: form,
           });
         }
 
