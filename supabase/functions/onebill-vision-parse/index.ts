@@ -866,62 +866,65 @@ serve(async (req) => {
       parsedData.bills.broadband = [];
     }
 
-    // Check service flags
-    const services = parsedData.bills.cus_details?.[0]?.services;
-    const hasElectricity = services?.electricity === true;
-    const hasGas = services?.gas === true;
+    // Document classification based on parsed fields
+    // Check for electricity fields (mprn or dg)
+    const electricityData = parsedData.bills.electricity?.[0];
+    const mprn = electricityData?.electricity_details?.meter_details?.mprn;
+    const dg = electricityData?.electricity_details?.meter_details?.dg;
+    const mcc = electricityData?.electricity_details?.meter_details?.mcc;
+    const hasElectricityData = !!(mprn || dg);
     
-    // Check for meter IDs (MPRN for electricity, GPRN for gas)
-    const hasMPRN = parsedData.bills.electricity?.some((e: any) => 
-      e.electricity_details?.meter_details?.mprn
-    );
-    const hasGPRN = parsedData.bills.gas?.some((g: any) => 
-      g.gas_details?.meter_details?.gprn
-    );
-    const hasMeter = hasMPRN || hasGPRN;
+    // Check for gas fields (gprn)
+    const gasData = parsedData.bills.gas?.[0];
+    const gprn = gasData?.gas_details?.meter_details?.gprn;
+    const hasGasData = !!gprn;
     
-    console.log("Services detected:", { 
-      electricity: hasElectricity, 
-      gas: hasGas, 
-      meter: hasMeter,
-      mprn: hasMPRN,
-      gprn: hasGPRN
+    console.log("Classification check:", { 
+      mprn, 
+      dg, 
+      mcc,
+      gprn,
+      hasElectricityData,
+      hasGasData
     });
 
-    if (!hasElectricity && !hasGas && !hasMeter) {
-      return new Response(
-        JSON.stringify({
-          error: "No electricity, gas, or meter services detected in bill",
-          parsed_data: parsedData,
-          input_type: isPdf ? "pdf" : "image",
-          used_conversion: usedConversion
-        }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
-    // Prepare API calls based on detected services
+    // Prepare API calls based on classification
     const apiCalls: Array<{ endpoint: string; type: string; payload?: any }> = [];
     
-    if (hasElectricity) {
+    // Classify as Electricity-File if mprn or dg exists
+    if (hasElectricityData) {
       apiCalls.push({
         endpoint: "https://api.onebill.ie/api/electricity-file",
-        type: "electricity"
+        type: "electricity",
+        payload: {
+          phone,
+          mprn: mprn || "",
+          mcc_type: mcc || "",
+          dg_type: dg || "",
+          file: fileUrl
+        }
       });
     }
     
-    if (hasGas) {
+    // Classify as Gas-File if gprn exists
+    if (hasGasData) {
       apiCalls.push({
         endpoint: "https://api.onebill.ie/api/gas-file",
-        type: "gas"
+        type: "gas",
+        payload: {
+          phone,
+          gprn: gprn || "",
+          file: fileUrl
+        }
       });
     }
     
-    if (hasMeter) {
+    // Default to Meter API if not enough data to classify
+    if (!hasElectricityData && !hasGasData) {
+      console.log("Not enough data to classify - defaulting to Meter API");
       apiCalls.push({
         endpoint: "https://api.onebill.ie/api/meter-file",
-        type: "meter",
-        payload: { file: parsedData, phone }
+        type: "meter"
       });
     }
 
@@ -929,17 +932,15 @@ serve(async (req) => {
     const MAX_ERROR_LENGTH = 4096;
     const apiResults = await Promise.all(
       apiCalls.map(async ({ endpoint, type, payload }) => {
-        // Use custom payload if provided (for meter), otherwise use parsedData
-        const requestBody = payload || parsedData;
-        
         try {
           console.log(`Calling ${type} API:`, endpoint);
+          console.log(`Payload:`, JSON.stringify(payload || {}, null, 2));
 
           let apiResponse: Response;
           let responseText = "";
 
           if (type === "meter") {
-            // Send original uploaded file as multipart/form-data along with phone
+            // Meter API: Send original uploaded file as multipart/form-data
             const form = new FormData();
             try {
               const fileResp = await fetch(fileUrl);
@@ -947,12 +948,14 @@ serve(async (req) => {
               const contentType = fileResp.headers.get("content-type") ||
                 (fileUrl.toLowerCase().endsWith(".png") ? "image/png" :
                  fileUrl.toLowerCase().endsWith(".jpg") || fileUrl.toLowerCase().endsWith(".jpeg") ? "image/jpeg" :
+                 fileUrl.toLowerCase().endsWith(".pdf") ? "application/pdf" :
                  "application/octet-stream");
               const fileName = typeof file_path === "string" && file_path.length > 0 ? file_path : "upload.bin";
               const blob = new Blob([new Uint8Array(arrayBuf)], { type: contentType });
               form.append("file", blob, fileName);
             } catch (e) {
               console.error("Failed to fetch original file for meter upload:", e);
+              throw e;
             }
             form.append("phone", phone);
 
@@ -964,16 +967,18 @@ serve(async (req) => {
               },
               body: form
             });
-          } else {
-            // Electricity/Gas: JSON payload of parsed data
+          } else if (type === "electricity" || type === "gas") {
+            // Electricity/Gas: JSON payload with extracted fields
             apiResponse = await fetch(endpoint, {
               method: "POST",
               headers: {
                 "Authorization": `Bearer ${ONEBILL_API_KEY}`,
                 "Content-Type": "application/json"
               },
-              body: JSON.stringify(requestBody)
+              body: JSON.stringify(payload)
             });
+          } else {
+            throw new Error(`Unknown API type: ${type}`);
           }
 
           try {
@@ -993,7 +998,7 @@ serve(async (req) => {
             status: apiResponse.status,
             ok: apiResponse.ok,
             response: truncatedResponse,
-            payload: type === "meter" ? { file: "[multipart file]", phone } : requestBody // Include payload for retry
+            payload: type === "meter" ? { file: "[multipart file]", phone } : payload
           };
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : "Unknown error";
@@ -1005,7 +1010,7 @@ serve(async (req) => {
             status: 500,
             ok: false,
             error: errorMessage.slice(0, MAX_ERROR_LENGTH),
-            payload: type === "meter" ? { file: "[multipart file]", phone } : requestBody // Include payload for retry
+            payload: type === "meter" ? { file: "[multipart file]", phone } : payload
           };
         }
       })
@@ -1019,10 +1024,10 @@ serve(async (req) => {
         ok: allSuccessful,
         parsed_data: parsedData,
         services_detected: {
-          electricity: hasElectricity,
-          gas: hasGas,
-          meter: hasMeter,
-          broadband: services?.broadband || false
+          electricity: hasElectricityData,
+          gas: hasGasData,
+          meter: !hasElectricityData && !hasGasData,
+          broadband: parsedData.bills.broadband?.length > 0
         },
         api_calls: apiResults,
         input_type: isPdf ? "pdf" : "image",
