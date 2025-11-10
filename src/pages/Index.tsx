@@ -2,11 +2,13 @@ import { useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
 import { renderPdfFirstPageToBlob } from "@/lib/pdf-to-image";
+import { ApiRetryPanel } from "@/components/ApiRetryPanel";
 
 const Index = () => {
   const [phone, setPhone] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
+  const [failedApiCalls, setFailedApiCalls] = useState<any[]>([]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -37,15 +39,27 @@ const Index = () => {
 
       if (error) throw error;
 
-      toast({
-        title: "Success!",
-        description: `Bill parsed and submitted to OneBill API. Services: ${data.detected_services?.join(", ") || "none"}`,
-      });
-
-      // Reset form
-      setPhone("");
-      setFile(null);
-      (document.getElementById("file-input") as HTMLInputElement).value = "";
+      // Check for failed API calls
+      const failed = data.api_calls?.filter((call: any) => !call.ok) || [];
+      
+      if (failed.length > 0) {
+        setFailedApiCalls(failed);
+        toast({
+          title: "Some API calls failed",
+          description: `${failed.length} API call(s) failed. Edit and retry below.`,
+          variant: "destructive"
+        });
+      } else {
+        toast({
+          title: "Success!",
+          description: `Bill parsed and submitted to OneBill API.`,
+        });
+        // Reset form only on complete success
+        setPhone("");
+        setFile(null);
+        setFailedApiCalls([]);
+        (document.getElementById("file-input") as HTMLInputElement).value = "";
+      }
     } catch (error: any) {
       toast({
         title: "Error",
@@ -101,6 +115,15 @@ const Index = () => {
             {loading ? "Processing..." : "Upload & Parse"}
           </button>
         </form>
+
+        <ApiRetryPanel 
+          failedCalls={failedApiCalls}
+          phone={phone}
+          onRetrySuccess={() => {
+            setFailedApiCalls([]);
+            toast({ title: "All retries completed" });
+          }}
+        />
       </div>
     </div>
   );

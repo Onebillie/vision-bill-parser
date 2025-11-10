@@ -929,11 +929,11 @@ serve(async (req) => {
     const MAX_ERROR_LENGTH = 4096;
     const apiResults = await Promise.all(
       apiCalls.map(async ({ endpoint, type, payload }) => {
+        // Use custom payload if provided (for meter), otherwise use parsedData
+        const requestBody = payload || parsedData;
+        
         try {
           console.log(`Calling ${type} API:`, endpoint);
-          
-          // Use custom payload if provided (for meter), otherwise use parsedData
-          const requestBody = payload || parsedData;
           
           const apiResponse = await fetch(endpoint, {
             method: "POST",
@@ -961,7 +961,8 @@ serve(async (req) => {
             endpoint,
             status: apiResponse.status,
             ok: apiResponse.ok,
-            response: truncatedResponse
+            response: truncatedResponse,
+            payload: requestBody // Include payload for retry
           };
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : "Unknown error";
@@ -972,7 +973,8 @@ serve(async (req) => {
             endpoint,
             status: 500,
             ok: false,
-            error: errorMessage.slice(0, MAX_ERROR_LENGTH)
+            error: errorMessage.slice(0, MAX_ERROR_LENGTH),
+            payload: requestBody // Include payload for retry
           };
         }
       })
