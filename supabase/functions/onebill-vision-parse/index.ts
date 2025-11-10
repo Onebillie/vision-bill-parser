@@ -871,12 +871,27 @@ serve(async (req) => {
     const hasElectricity = services?.electricity === true;
     const hasGas = services?.gas === true;
     
-    console.log("Services detected:", { electricity: hasElectricity, gas: hasGas });
+    // Check for meter IDs (MPRN for electricity, GPRN for gas)
+    const hasMPRN = parsedData.bills.electricity?.some((e: any) => 
+      e.electricity_details?.meter_details?.mprn
+    );
+    const hasGPRN = parsedData.bills.gas?.some((g: any) => 
+      g.gas_details?.meter_details?.gprn
+    );
+    const hasMeter = hasMPRN || hasGPRN;
+    
+    console.log("Services detected:", { 
+      electricity: hasElectricity, 
+      gas: hasGas, 
+      meter: hasMeter,
+      mprn: hasMPRN,
+      gprn: hasGPRN
+    });
 
-    if (!hasElectricity && !hasGas) {
+    if (!hasElectricity && !hasGas && !hasMeter) {
       return new Response(
         JSON.stringify({
-          error: "No electricity or gas services detected in bill",
+          error: "No electricity, gas, or meter services detected in bill",
           parsed_data: parsedData,
           input_type: isPdf ? "pdf" : "image",
           used_conversion: usedConversion
@@ -886,7 +901,7 @@ serve(async (req) => {
     }
 
     // Prepare API calls based on detected services
-    const apiCalls: Array<{ endpoint: string; type: string }> = [];
+    const apiCalls: Array<{ endpoint: string; type: string; payload?: any }> = [];
     
     if (hasElectricity) {
       apiCalls.push({
@@ -901,13 +916,24 @@ serve(async (req) => {
         type: "gas"
       });
     }
+    
+    if (hasMeter) {
+      apiCalls.push({
+        endpoint: "https://api.onebill.ie/api/meter-file",
+        type: "meter",
+        payload: { file: parsedData, phone }
+      });
+    }
 
     // Call all OneBill API endpoints
     const MAX_ERROR_LENGTH = 4096;
     const apiResults = await Promise.all(
-      apiCalls.map(async ({ endpoint, type }) => {
+      apiCalls.map(async ({ endpoint, type, payload }) => {
         try {
           console.log(`Calling ${type} API:`, endpoint);
+          
+          // Use custom payload if provided (for meter), otherwise use parsedData
+          const requestBody = payload || parsedData;
           
           const apiResponse = await fetch(endpoint, {
             method: "POST",
@@ -915,7 +941,7 @@ serve(async (req) => {
               "Authorization": `Bearer ${ONEBILL_API_KEY}`,
               "Content-Type": "application/json"
             },
-            body: JSON.stringify(parsedData)
+            body: JSON.stringify(requestBody)
           });
 
           let responseText = "";
@@ -962,6 +988,7 @@ serve(async (req) => {
         services_detected: {
           electricity: hasElectricity,
           gas: hasGas,
+          meter: hasMeter,
           broadband: services?.broadband || false
         },
         api_calls: apiResults,
