@@ -14,39 +14,7 @@ export type Database = {
   }
   public: {
     Tables: {
-      api_configs: {
-        Row: {
-          created_at: string
-          endpoint_url: string
-          id: string
-          is_active: boolean
-          name: string
-          parameters: Json
-          service_type: string
-          updated_at: string
-        }
-        Insert: {
-          created_at?: string
-          endpoint_url: string
-          id?: string
-          is_active?: boolean
-          name: string
-          parameters?: Json
-          service_type: string
-          updated_at?: string
-        }
-        Update: {
-          created_at?: string
-          endpoint_url?: string
-          id?: string
-          is_active?: boolean
-          name?: string
-          parameters?: Json
-          service_type?: string
-          updated_at?: string
-        }
-        Relationships: []
-      }
+      [_ in never]: never
     }
     Views: {
       [_ in never]: never

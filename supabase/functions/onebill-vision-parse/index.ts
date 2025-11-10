@@ -97,7 +97,7 @@ Rules:
 - Currencies: "cent" or "euro".
 - Standing charge period: "daily" or "annual".
 - Always include all top-level sections; if a utility is not present, return its array as [].
-- Detect utilities using strong signals (MPRN/MCC/DG ⇒ electricity; GPRN/carbon tax ⇒ gas; MPRN or GPRN present ⇒ meter; broadband cues for broadband).
+- Detect utilities using strong signals (MPRN/MCC/DG ⇒ electricity; GPRN/carbon tax ⇒ gas; broadband cues for broadband).
 - Do not rename, add, or remove keys.`;
 
 serve(async (req) => {
@@ -106,11 +106,6 @@ serve(async (req) => {
   }
 
   try {
-    // Initialize Supabase client
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const supabase = createClient(supabaseUrl, supabaseKey);
-
     const { image_url, file_path, phone } = await req.json();
     
     const ONEBILL_API_KEY = Deno.env.get("ONEBILL_API_KEY");
@@ -133,8 +128,7 @@ serve(async (req) => {
     // If file_path is provided, construct the Supabase Storage URL
     if (file_path) {
       const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-      const encodedPath = file_path.split('/').map(encodeURIComponent).join('/');
-      fileUrl = `${supabaseUrl}/storage/v1/object/public/bills/${encodedPath}`;
+      fileUrl = `${supabaseUrl}/storage/v1/object/public/bills/${file_path}`;
       console.log("Using uploaded file:", fileUrl);
     }
     
@@ -157,18 +151,16 @@ serve(async (req) => {
     let { urls: imageUrls, usedConversion } = await getVisualInputs(fileUrl, isPdf);
     console.log(`Parsing with ${imageUrls.length} image(s), conversion: ${usedConversion}`);
 
-    // Build content array with text and images - use direct URLs
+    // Build content array with text and images/documents
     const content: any[] = [{ type: "text", text: PARSE_PROMPT }];
-
-    // Add images/documents directly by URL (avoids base64 stack overflow)
-    for (const rawUrl of imageUrls.slice(0, 3)) {
-      const imgUrl = rawUrl.replace(/ /g, "%20"); // handle spaces in filenames
-      console.log("Adding image URL:", imgUrl);
-      content.push({ type: "image_url", image_url: { url: imgUrl } });
-    }
-
-    if (content.length === 1) {
-      throw new Error("No images could be loaded for parsing");
+    
+    // If it's a PDF and we didn't convert yet, send as a document instead of image
+    if (isPdf && !usedConversion) {
+      content.push({ type: "document", document_url: { url: imageUrls[0] } });
+    } else {
+      for (const imgUrl of imageUrls.slice(0, 3)) {
+        content.push({ type: "image_url", image_url: { url: imgUrl } });
+      }
     }
 
     // Call Lovable AI with vision model
@@ -219,8 +211,7 @@ serve(async (req) => {
                             properties: {
                               gas: { type: "boolean" },
                               broadband: { type: "boolean" },
-                              electricity: { type: "boolean" },
-                              meter: { type: "boolean" }
+                              electricity: { type: "boolean" }
                             }
                           }
                         }
@@ -875,26 +866,17 @@ serve(async (req) => {
       parsedData.bills.broadband = [];
     }
 
-    // Check service flags (robust detection using parsed content)
-    const services = parsedData.bills.cus_details?.[0]?.services || {};
-    const electricityArray = Array.isArray(parsedData.bills.electricity) ? parsedData.bills.electricity : [];
-    const gasArray = Array.isArray(parsedData.bills.gas) ? parsedData.bills.gas : [];
-    const broadbandArray = Array.isArray(parsedData.bills.broadband) ? parsedData.bills.broadband : [];
-
-    const mprnPresent = electricityArray.some((e: any) => e?.electricity_details?.meter_details?.mprn);
-    const gprnPresent = gasArray.some((g: any) => g?.gas_details?.meter_details?.gprn);
-
-    const hasElectricity = services.electricity === true || electricityArray.length > 0 || mprnPresent;
-    const hasGas = services.gas === true || gasArray.length > 0 || gprnPresent;
-    const hasBroadband = services.broadband === true || broadbandArray.length > 0;
-    const hasMeter = services.meter === true || mprnPresent || gprnPresent;
+    // Check service flags
+    const services = parsedData.bills.cus_details?.[0]?.services;
+    const hasElectricity = services?.electricity === true;
+    const hasGas = services?.gas === true;
     
-    console.log("Services detected:", { electricity: hasElectricity, gas: hasGas, meter: hasMeter, broadband: hasBroadband });
+    console.log("Services detected:", { electricity: hasElectricity, gas: hasGas });
 
-    if (!hasElectricity && !hasGas && !hasMeter && !hasBroadband) {
+    if (!hasElectricity && !hasGas) {
       return new Response(
         JSON.stringify({
-          error: "No services detected in bill (electricity, gas, meter, broadband)",
+          error: "No electricity or gas services detected in bill",
           parsed_data: parsedData,
           input_type: isPdf ? "pdf" : "image",
           used_conversion: usedConversion
@@ -903,62 +885,23 @@ serve(async (req) => {
       );
     }
 
-    // Fetch active API configs from database
-    const { data: apiConfigs, error: configError } = await supabase
-      .from('api_configs')
-      .select('endpoint_url, service_type')
-      .eq('is_active', true);
-
-    if (configError) {
-      console.error("Error fetching API configs:", configError);
-      return new Response(
-        JSON.stringify({ error: "Failed to fetch API configurations" }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-      );
-    }
-
-    // Prepare API calls based on detected services and database configs
+    // Prepare API calls based on detected services
     const apiCalls: Array<{ endpoint: string; type: string }> = [];
     
     if (hasElectricity) {
-      const config = apiConfigs?.find((c: any) => c.service_type === 'electricity');
-      if (config) {
-        apiCalls.push({
-          endpoint: config.endpoint_url,
-          type: "electricity"
-        });
-      }
+      apiCalls.push({
+        endpoint: "https://api.onebill.ie/api/electricity-file",
+        type: "electricity"
+      });
     }
     
     if (hasGas) {
-      const config = apiConfigs?.find((c: any) => c.service_type === 'gas');
-      if (config) {
-        apiCalls.push({
-          endpoint: config.endpoint_url,
-          type: "gas"
-        });
-      }
-    }
-    
-    if (hasMeter) {
-      const config = apiConfigs?.find((c: any) => c.service_type === 'meter');
-      if (config) {
-        apiCalls.push({
-          endpoint: config.endpoint_url,
-          type: "meter"
-        });
-      }
+      apiCalls.push({
+        endpoint: "https://api.onebill.ie/api/gas-file",
+        type: "gas"
+      });
     }
 
-    if (hasBroadband) {
-      const config = apiConfigs?.find((c: any) => c.service_type === 'broadband');
-      if (config) {
-        apiCalls.push({
-          endpoint: config.endpoint_url,
-          type: "broadband"
-        });
-      }
-    }
     // Call all OneBill API endpoints
     const MAX_ERROR_LENGTH = 4096;
     const apiResults = await Promise.all(
@@ -1019,8 +962,7 @@ serve(async (req) => {
         services_detected: {
           electricity: hasElectricity,
           gas: hasGas,
-          meter: hasMeter,
-          broadband: hasBroadband
+          broadband: services?.broadband || false
         },
         api_calls: apiResults,
         input_type: isPdf ? "pdf" : "image",

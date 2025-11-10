@@ -37,13 +37,9 @@ const Index = () => {
 
       if (error) throw error;
 
-      const detectedServices = Object.entries(data.services_detected || {})
-        .filter(([_, detected]) => detected)
-        .map(([service]) => service);
-      
       toast({
         title: "Success!",
-        description: `Bill parsed and submitted to OneBill API. Services: ${detectedServices.join(", ") || "none"}`,
+        description: `Bill parsed and submitted to OneBill API. Services: ${data.detected_services?.join(", ") || "none"}`,
       });
 
       // Reset form
@@ -67,9 +63,6 @@ const Index = () => {
         <div className="text-center space-y-2">
           <h1 className="text-3xl font-bold">OneBill Vision Parse</h1>
           <p className="text-muted-foreground">Upload your utility bill</p>
-          <a href="/api-configs" className="text-sm text-primary hover:underline block">
-            Manage API Configurations
-          </a>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4 bg-card p-6 rounded-lg border">
