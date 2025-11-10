@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
-import { renderPdfFirstPageToBlob } from "@/lib/pdf-to-image";
+// import { renderPdfFirstPageToBlob } from "@/lib/pdf-to-image";
 import { ApiRetryPanel } from "@/components/ApiRetryPanel";
 
 const Index = () => {
@@ -20,12 +20,8 @@ const Index = () => {
 
     setLoading(true);
     try {
-      // Convert PDF to PNG if needed
-      let uploadFile = file;
-      if (file.type === "application/pdf") {
-        const pngBlob = await renderPdfFirstPageToBlob(file);
-        uploadFile = new File([pngBlob], file.name.replace(/\.pdf$/i, ".png"), { type: "image/png" });
-      }
+      // Upload original file as-is (keep PDF for downstream meter API)
+      const uploadFile = file;
 
       // Upload to storage
       const fileName = `${Date.now()}_${uploadFile.name}`;
