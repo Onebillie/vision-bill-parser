@@ -97,7 +97,7 @@ Rules:
 - Currencies: "cent" or "euro".
 - Standing charge period: "daily" or "annual".
 - Always include all top-level sections; if a utility is not present, return its array as [].
-- Detect utilities using strong signals (MPRN/MCC/DG ⇒ electricity; GPRN/carbon tax ⇒ gas; broadband cues for broadband).
+- Detect utilities using strong signals (MPRN/MCC/DG ⇒ electricity; GPRN/carbon tax ⇒ gas; MPRN or GPRN present ⇒ meter; broadband cues for broadband).
 - Do not rename, add, or remove keys.`;
 
 serve(async (req) => {
@@ -211,7 +211,8 @@ serve(async (req) => {
                             properties: {
                               gas: { type: "boolean" },
                               broadband: { type: "boolean" },
-                              electricity: { type: "boolean" }
+                              electricity: { type: "boolean" },
+                              meter: { type: "boolean" }
                             }
                           }
                         }
@@ -870,13 +871,14 @@ serve(async (req) => {
     const services = parsedData.bills.cus_details?.[0]?.services;
     const hasElectricity = services?.electricity === true;
     const hasGas = services?.gas === true;
+    const hasMeter = services?.meter === true;
     
-    console.log("Services detected:", { electricity: hasElectricity, gas: hasGas });
+    console.log("Services detected:", { electricity: hasElectricity, gas: hasGas, meter: hasMeter });
 
-    if (!hasElectricity && !hasGas) {
+    if (!hasElectricity && !hasGas && !hasMeter) {
       return new Response(
         JSON.stringify({
-          error: "No electricity or gas services detected in bill",
+          error: "No electricity, gas, or meter services detected in bill",
           parsed_data: parsedData,
           input_type: isPdf ? "pdf" : "image",
           used_conversion: usedConversion
@@ -899,6 +901,13 @@ serve(async (req) => {
       apiCalls.push({
         endpoint: "https://api.onebill.ie/api/gas-file",
         type: "gas"
+      });
+    }
+    
+    if (hasMeter) {
+      apiCalls.push({
+        endpoint: "https://api.onebill.ie/api/meter-file",
+        type: "meter"
       });
     }
 
@@ -962,6 +971,7 @@ serve(async (req) => {
         services_detected: {
           electricity: hasElectricity,
           gas: hasGas,
+          meter: hasMeter,
           broadband: services?.broadband || false
         },
         api_calls: apiResults,
