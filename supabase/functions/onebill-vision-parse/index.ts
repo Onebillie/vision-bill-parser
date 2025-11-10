@@ -106,6 +106,11 @@ serve(async (req) => {
   }
 
   try {
+    // Initialize Supabase client
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const supabase = createClient(supabaseUrl, supabaseKey);
+
     const { image_url, file_path, phone } = await req.json();
     
     const ONEBILL_API_KEY = Deno.env.get("ONEBILL_API_KEY");
@@ -887,28 +892,51 @@ serve(async (req) => {
       );
     }
 
-    // Prepare API calls based on detected services
+    // Fetch active API configs from database
+    const { data: apiConfigs, error: configError } = await supabase
+      .from('api_configs')
+      .select('endpoint_url, service_type')
+      .eq('is_active', true);
+
+    if (configError) {
+      console.error("Error fetching API configs:", configError);
+      return new Response(
+        JSON.stringify({ error: "Failed to fetch API configurations" }),
+        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Prepare API calls based on detected services and database configs
     const apiCalls: Array<{ endpoint: string; type: string }> = [];
     
     if (hasElectricity) {
-      apiCalls.push({
-        endpoint: "https://api.onebill.ie/api/electricity-file",
-        type: "electricity"
-      });
+      const config = apiConfigs?.find((c: any) => c.service_type === 'electricity');
+      if (config) {
+        apiCalls.push({
+          endpoint: config.endpoint_url,
+          type: "electricity"
+        });
+      }
     }
     
     if (hasGas) {
-      apiCalls.push({
-        endpoint: "https://api.onebill.ie/api/gas-file",
-        type: "gas"
-      });
+      const config = apiConfigs?.find((c: any) => c.service_type === 'gas');
+      if (config) {
+        apiCalls.push({
+          endpoint: config.endpoint_url,
+          type: "gas"
+        });
+      }
     }
     
     if (hasMeter) {
-      apiCalls.push({
-        endpoint: "https://api.onebill.ie/api/meter-file",
-        type: "meter"
-      });
+      const config = apiConfigs?.find((c: any) => c.service_type === 'meter');
+      if (config) {
+        apiCalls.push({
+          endpoint: config.endpoint_url,
+          type: "meter"
+        });
+      }
     }
 
     // Call all OneBill API endpoints
