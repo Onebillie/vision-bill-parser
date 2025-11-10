@@ -875,18 +875,26 @@ serve(async (req) => {
       parsedData.bills.broadband = [];
     }
 
-    // Check service flags
-    const services = parsedData.bills.cus_details?.[0]?.services;
-    const hasElectricity = services?.electricity === true;
-    const hasGas = services?.gas === true;
-    const hasMeter = services?.meter === true;
-    
-    console.log("Services detected:", { electricity: hasElectricity, gas: hasGas, meter: hasMeter });
+    // Check service flags (robust detection using parsed content)
+    const services = parsedData.bills.cus_details?.[0]?.services || {};
+    const electricityArray = Array.isArray(parsedData.bills.electricity) ? parsedData.bills.electricity : [];
+    const gasArray = Array.isArray(parsedData.bills.gas) ? parsedData.bills.gas : [];
+    const broadbandArray = Array.isArray(parsedData.bills.broadband) ? parsedData.bills.broadband : [];
 
-    if (!hasElectricity && !hasGas && !hasMeter) {
+    const mprnPresent = electricityArray.some((e: any) => e?.electricity_details?.meter_details?.mprn);
+    const gprnPresent = gasArray.some((g: any) => g?.gas_details?.meter_details?.gprn);
+
+    const hasElectricity = services.electricity === true || electricityArray.length > 0 || mprnPresent;
+    const hasGas = services.gas === true || gasArray.length > 0 || gprnPresent;
+    const hasBroadband = services.broadband === true || broadbandArray.length > 0;
+    const hasMeter = services.meter === true || mprnPresent || gprnPresent;
+    
+    console.log("Services detected:", { electricity: hasElectricity, gas: hasGas, meter: hasMeter, broadband: hasBroadband });
+
+    if (!hasElectricity && !hasGas && !hasMeter && !hasBroadband) {
       return new Response(
         JSON.stringify({
-          error: "No electricity, gas, or meter services detected in bill",
+          error: "No services detected in bill (electricity, gas, meter, broadband)",
           parsed_data: parsedData,
           input_type: isPdf ? "pdf" : "image",
           used_conversion: usedConversion
@@ -942,6 +950,15 @@ serve(async (req) => {
       }
     }
 
+    if (hasBroadband) {
+      const config = apiConfigs?.find((c: any) => c.service_type === 'broadband');
+      if (config) {
+        apiCalls.push({
+          endpoint: config.endpoint_url,
+          type: "broadband"
+        });
+      }
+    }
     // Call all OneBill API endpoints
     const MAX_ERROR_LENGTH = 4096;
     const apiResults = await Promise.all(
@@ -1003,7 +1020,7 @@ serve(async (req) => {
           electricity: hasElectricity,
           gas: hasGas,
           meter: hasMeter,
-          broadband: services?.broadband || false
+          broadband: hasBroadband
         },
         api_calls: apiResults,
         input_type: isPdf ? "pdf" : "image",
