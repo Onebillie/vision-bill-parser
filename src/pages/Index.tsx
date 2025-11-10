@@ -37,9 +37,13 @@ const Index = () => {
 
       if (error) throw error;
 
+      const detectedServices = Object.entries(data.services_detected || {})
+        .filter(([_, detected]) => detected)
+        .map(([service]) => service);
+      
       toast({
         title: "Success!",
-        description: `Bill parsed and submitted to OneBill API. Services: ${data.detected_services?.join(", ") || "none"}`,
+        description: `Bill parsed and submitted to OneBill API. Services: ${detectedServices.join(", ") || "none"}`,
       });
 
       // Reset form
