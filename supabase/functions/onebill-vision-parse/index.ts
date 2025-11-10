@@ -934,17 +934,48 @@ serve(async (req) => {
         
         try {
           console.log(`Calling ${type} API:`, endpoint);
-          
-          const apiResponse = await fetch(endpoint, {
-            method: "POST",
-            headers: {
-              "Authorization": `Bearer ${ONEBILL_API_KEY}`,
-              "Content-Type": "application/json"
-            },
-            body: JSON.stringify(requestBody)
-          });
 
+          let apiResponse: Response;
           let responseText = "";
+
+          if (type === "meter") {
+            // Send original uploaded file as multipart/form-data along with phone
+            const form = new FormData();
+            try {
+              const fileResp = await fetch(fileUrl);
+              const arrayBuf = await fileResp.arrayBuffer();
+              const contentType = fileResp.headers.get("content-type") ||
+                (fileUrl.toLowerCase().endsWith(".png") ? "image/png" :
+                 fileUrl.toLowerCase().endsWith(".jpg") || fileUrl.toLowerCase().endsWith(".jpeg") ? "image/jpeg" :
+                 "application/octet-stream");
+              const fileName = typeof file_path === "string" && file_path.length > 0 ? file_path : "upload.bin";
+              const blob = new Blob([new Uint8Array(arrayBuf)], { type: contentType });
+              form.append("file", blob, fileName);
+            } catch (e) {
+              console.error("Failed to fetch original file for meter upload:", e);
+            }
+            form.append("phone", phone);
+
+            apiResponse = await fetch(endpoint, {
+              method: "POST",
+              headers: {
+                "Authorization": `Bearer ${ONEBILL_API_KEY}`
+                // Do NOT set Content-Type when sending FormData; the runtime will set the correct boundary
+              },
+              body: form
+            });
+          } else {
+            // Electricity/Gas: JSON payload of parsed data
+            apiResponse = await fetch(endpoint, {
+              method: "POST",
+              headers: {
+                "Authorization": `Bearer ${ONEBILL_API_KEY}`,
+                "Content-Type": "application/json"
+              },
+              body: JSON.stringify(requestBody)
+            });
+          }
+
           try {
             responseText = await apiResponse.text();
           } catch (e) {
@@ -962,7 +993,7 @@ serve(async (req) => {
             status: apiResponse.status,
             ok: apiResponse.ok,
             response: truncatedResponse,
-            payload: requestBody // Include payload for retry
+            payload: type === "meter" ? { file: "[multipart file]", phone } : requestBody // Include payload for retry
           };
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : "Unknown error";
@@ -974,7 +1005,7 @@ serve(async (req) => {
             status: 500,
             ok: false,
             error: errorMessage.slice(0, MAX_ERROR_LENGTH),
-            payload: requestBody // Include payload for retry
+            payload: type === "meter" ? { file: "[multipart file]", phone } : requestBody // Include payload for retry
           };
         }
       })
