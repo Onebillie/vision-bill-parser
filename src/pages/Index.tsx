@@ -9,6 +9,7 @@ const Index = () => {
   const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
   const [failedApiCalls, setFailedApiCalls] = useState<any[]>([]);
+  const [lastUploadedFilePath, setLastUploadedFilePath] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -31,6 +32,7 @@ const Index = () => {
       const { error: uploadError } = await supabase.storage.from("bills").upload(fileName, uploadFile);
       
       if (uploadError) throw uploadError;
+      setLastUploadedFilePath(fileName);
 
       // Parse bill
       const { data, error } = await supabase.functions.invoke("onebill-vision-parse", {
@@ -119,6 +121,7 @@ const Index = () => {
         <ApiRetryPanel 
           failedCalls={failedApiCalls}
           phone={phone}
+          filePath={lastUploadedFilePath}
           onRetrySuccess={() => {
             setFailedApiCalls([]);
             toast({ title: "All retries completed" });

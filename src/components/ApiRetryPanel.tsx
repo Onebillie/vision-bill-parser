@@ -4,7 +4,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
 import { toast } from "@/hooks/use-toast";
 import { Badge } from "@/components/ui/badge";
-
+import { supabase } from "@/integrations/supabase/client";
 interface FailedApiCall {
   type: string;
   endpoint: string;
@@ -17,10 +17,11 @@ interface FailedApiCall {
 interface ApiRetryPanelProps {
   failedCalls: FailedApiCall[];
   phone: string;
+  filePath?: string | null;
   onRetrySuccess: () => void;
 }
 
-export const ApiRetryPanel = ({ failedCalls, phone, onRetrySuccess }: ApiRetryPanelProps) => {
+export const ApiRetryPanel = ({ failedCalls, phone, filePath, onRetrySuccess }: ApiRetryPanelProps) => {
   const [editedPayloads, setEditedPayloads] = useState<Record<string, string>>(
     Object.fromEntries(
       failedCalls.map((call, idx) => [
@@ -36,31 +37,29 @@ export const ApiRetryPanel = ({ failedCalls, phone, onRetrySuccess }: ApiRetryPa
     setRetrying(prev => ({ ...prev, [key]: true }));
 
     try {
-      const payload = JSON.parse(editedPayloads[key]);
-      
-      const response = await fetch(call.endpoint, {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${import.meta.env.VITE_ONEBILL_API_KEY}`,
-          "Content-Type": "application/json"
+      const payload = (() => {
+        try { return JSON.parse(editedPayloads[key] || "{}"); } catch { return {}; }
+      })();
+
+      const { data, error } = await supabase.functions.invoke("onebill-retry", {
+        body: {
+          type: call.type,
+          endpoint: call.endpoint,
+          payload,
+          phone,
+          file_path: call.type === "meter" ? filePath : undefined,
         },
-        body: JSON.stringify(payload)
       });
 
-      const result = await response.text();
+      if (error) throw error;
 
-      if (response.ok) {
-        toast({
-          title: "Success!",
-          description: `${call.type} API call succeeded`
-        });
+      if (data?.ok) {
+        toast({ title: "Success!", description: `${call.type} API call succeeded` });
         onRetrySuccess();
       } else {
-        toast({
-          title: "Retry Failed",
-          description: `Status ${response.status}: ${result.slice(0, 200)}`,
-          variant: "destructive"
-        });
+        const status = data?.status ?? 0;
+        const detail = (data?.response || data?.error || "Unknown error").slice(0, 200);
+        toast({ title: "Retry Failed", description: `Status ${status}: ${detail}` , variant: "destructive" });
       }
     } catch (error: any) {
       toast({

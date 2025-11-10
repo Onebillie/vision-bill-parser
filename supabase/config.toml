@@ -2,3 +2,6 @@ project_id = "lcmhoexolugvaucsrecp"
 
 [functions.onebill-vision-parse]
 verify_jwt = false
+
+[functions.onebill-retry]
+verify_jwt = false
