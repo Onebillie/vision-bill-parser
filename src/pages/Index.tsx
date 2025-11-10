@@ -1,199 +1,103 @@
-import { Input } from "@/components/ui/input";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useBillParser } from "@/hooks/useBillParser";
-import { ParsingProgress } from "@/components/ParsingProgress";
-import { FileUpload } from "@/components/FileUpload";
-import { ServiceBadges } from "@/components/ServiceBadges";
-import { ElectricityBillBreakdown } from "@/components/ElectricityBillBreakdown";
-import { GasBillBreakdown } from "@/components/GasBillBreakdown";
-import { BroadbandBreakdown } from "@/components/BroadbandBreakdown";
-import { CustomerDetailsBreakdown } from "@/components/CustomerDetailsBreakdown";
-import { AllFieldsDebugView } from "@/components/AllFieldsDebugView";
+import { useState } from "react";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "@/hooks/use-toast";
+import { renderPdfFirstPageToBlob } from "@/lib/pdf-to-image";
 
 const Index = () => {
-  const { phone, setPhone, loading, uploading, result, uploadedFile, progressStep, uploadFile } = useBillParser();
+  const [phone, setPhone] = useState("");
+  const [file, setFile] = useState<File | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!phone || !file) {
+      toast({ title: "Error", description: "Please provide phone number and file", variant: "destructive" });
+      return;
+    }
+
+    setLoading(true);
+    try {
+      // Convert PDF to PNG if needed
+      let uploadFile = file;
+      if (file.type === "application/pdf") {
+        const pngBlob = await renderPdfFirstPageToBlob(file);
+        uploadFile = new File([pngBlob], file.name.replace(/\.pdf$/i, ".png"), { type: "image/png" });
+      }
+
+      // Upload to storage
+      const fileName = `${Date.now()}_${uploadFile.name}`;
+      const { error: uploadError } = await supabase.storage.from("bills").upload(fileName, uploadFile);
+      
+      if (uploadError) throw uploadError;
+
+      // Parse bill
+      const { data, error } = await supabase.functions.invoke("onebill-vision-parse", {
+        body: { phone, file_path: fileName }
+      });
+
+      if (error) throw error;
+
+      toast({
+        title: "Success!",
+        description: `Bill parsed and submitted to OneBill API. Services: ${data.detected_services?.join(", ") || "none"}`,
+      });
+
+      // Reset form
+      setPhone("");
+      setFile(null);
+      (document.getElementById("file-input") as HTMLInputElement).value = "";
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to process bill",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
-    <div className="min-h-screen bg-background p-8">
-      <div className="max-w-4xl mx-auto space-y-8">
-        <div className="text-center space-y-4">
-          <h1 className="text-4xl font-bold">OneBill Vision Parse</h1>
-          <p className="text-muted-foreground">
-            Upload an Irish utility bill image to extract structured data
-          </p>
+    <div className="min-h-screen bg-background p-6">
+      <div className="max-w-md mx-auto space-y-6">
+        <div className="text-center space-y-2">
+          <h1 className="text-3xl font-bold">OneBill Vision Parse</h1>
+          <p className="text-muted-foreground">Upload your utility bill</p>
         </div>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Parse Document</CardTitle>
-            <CardDescription>
-              Upload a meter reading, gas bill, or electricity bill (JPG, PNG, WEBP, PDF)
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Phone Number *</label>
-              <Input
-                placeholder="+353 XX XXX XXXX"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                disabled={loading || uploading}
-              />
-            </div>
-            <FileUpload
-              onFileSelect={uploadFile}
-              disabled={uploading || loading}
-              currentFile={uploadedFile}
-              isUploading={uploading}
+        <form onSubmit={handleSubmit} className="space-y-4 bg-card p-6 rounded-lg border">
+          <div>
+            <label className="text-sm font-medium mb-2 block">Phone Number</label>
+            <input
+              type="tel"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              placeholder="+353858007335"
+              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+              required
             />
-          </CardContent>
-        </Card>
+          </div>
 
-        <ParsingProgress currentStep={progressStep} />
+          <div>
+            <label className="text-sm font-medium mb-2 block">Bill (Image or PDF)</label>
+            <input
+              id="file-input"
+              type="file"
+              accept="image/*,application/pdf"
+              onChange={(e) => setFile(e.target.files?.[0] || null)}
+              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm file:border-0 file:bg-transparent file:text-sm file:font-medium"
+              required
+            />
+          </div>
 
-        {result && (
-          <Card>
-            <CardHeader>
-              <CardTitle>Parsing Results</CardTitle>
-              <CardDescription>
-                {result.ok ? "✓ All API calls successful" : "⚠ Some API calls failed"}
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              {result.services_detected && (
-                <div>
-                  <h4 className="font-semibold mb-2 text-base">Services Detected:</h4>
-                  <ServiceBadges {...result.services_detected} />
-                </div>
-              )}
-
-              <Tabs defaultValue="customer" className="w-full">
-                <TabsList className="grid w-full grid-cols-5">
-                  <TabsTrigger value="customer">👤 Customer</TabsTrigger>
-                  <TabsTrigger value="breakdown">📊 Breakdown</TabsTrigger>
-                  <TabsTrigger value="all-fields">🔍 All Fields</TabsTrigger>
-                  <TabsTrigger value="api">🔗 API Calls</TabsTrigger>
-                  <TabsTrigger value="json">📄 Raw JSON</TabsTrigger>
-                </TabsList>
-
-                <TabsContent value="customer" className="space-y-6 mt-6">
-                  <CustomerDetailsBreakdown data={result.parsed_data} />
-                </TabsContent>
-
-                <TabsContent value="breakdown" className="space-y-6 mt-6">
-                  {result.parsed_data?.bills?.electricity && result.parsed_data.bills.electricity.length > 0 && (
-                    <ElectricityBillBreakdown data={result.parsed_data.bills.electricity} />
-                  )}
-
-                  {result.parsed_data?.bills?.gas && result.parsed_data.bills.gas.length > 0 && (
-                    <GasBillBreakdown data={result.parsed_data.bills.gas} />
-                  )}
-
-                  {result.parsed_data?.bills?.broadband && result.parsed_data.bills.broadband.length > 0 && (
-                    <BroadbandBreakdown data={result.parsed_data.bills.broadband} />
-                  )}
-
-                  {(!result.parsed_data?.bills?.electricity || result.parsed_data.bills.electricity.length === 0) &&
-                   (!result.parsed_data?.bills?.gas || result.parsed_data.bills.gas.length === 0) &&
-                   (!result.parsed_data?.bills?.broadband || result.parsed_data.bills.broadband.length === 0) && (
-                    <div className="text-center text-muted-foreground py-8">
-                      No bill data available to display
-                    </div>
-                  )}
-                </TabsContent>
-
-                <TabsContent value="all-fields" className="mt-6">
-                  <AllFieldsDebugView data={result.parsed_data} />
-                </TabsContent>
-
-                <TabsContent value="api" className="mt-6">
-                  {result.api_calls && result.api_calls.length > 0 ? (
-                    <div className="space-y-3">
-                      {result.api_calls.map((call: any, idx: number) => (
-                        <Card key={idx} className="border">
-                          <CardContent className="p-4">
-                            <div className="flex items-center justify-between mb-3">
-                              <div className="flex items-center gap-3">
-                                <span className={`text-lg ${call.ok ? 'text-green-600' : 'text-red-600'}`}>
-                                  {call.ok ? '✓' : '✗'}
-                                </span>
-                                <div>
-                                  <div className="font-semibold capitalize">{call.type} Service</div>
-                                  <div className="text-xs text-muted-foreground">HTTP {call.status}</div>
-                                </div>
-                              </div>
-                              <span className={`px-3 py-1 rounded text-xs font-medium ${
-                                call.ok 
-                                  ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' 
-                                  : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
-                              }`}>
-                                {call.ok ? 'Success' : 'Failed'}
-                              </span>
-                            </div>
-                            <div className="text-xs text-muted-foreground mb-2 font-mono">
-                              {call.endpoint}
-                            </div>
-                            {call.response && (
-                              <div className="mt-3 p-3 bg-muted rounded border">
-                                <div className="text-xs font-semibold mb-2">Response:</div>
-                                <pre className="text-xs overflow-auto max-h-40 text-muted-foreground">
-                                  {call.response}
-                                </pre>
-                              </div>
-                            )}
-                            {call.error && (
-                              <div className="mt-3 p-3 bg-red-50 dark:bg-red-900/20 rounded border border-red-200 dark:border-red-800">
-                                <div className="text-xs font-semibold text-red-800 dark:text-red-200 mb-2">Error:</div>
-                                <div className="text-xs text-red-700 dark:text-red-300">{call.error}</div>
-                              </div>
-                            )}
-                          </CardContent>
-                        </Card>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="text-center text-muted-foreground py-8">
-                      No API calls were made
-                    </div>
-                  )}
-                </TabsContent>
-
-                <TabsContent value="json" className="mt-6">
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="text-base">Complete Parsed JSON</CardTitle>
-                      <CardDescription>Full structured data sent to OneBill API</CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      <pre className="bg-muted p-4 rounded-lg overflow-auto text-xs max-h-[600px] border">
-                        {JSON.stringify(result.parsed_data || result.data, null, 2)}
-                      </pre>
-                    </CardContent>
-                  </Card>
-                </TabsContent>
-              </Tabs>
-
-              {result?.input_type && (
-                <Card className="mt-6">
-                  <CardHeader>
-                    <CardTitle className="text-base">Debug Information</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <pre className="bg-muted p-3 rounded-lg overflow-auto text-xs">
-                      {JSON.stringify({
-                        input_type: result.input_type,
-                        used_conversion: result.used_conversion,
-                        visual_input_count: result.visual_input_count,
-                        visual_inputs_sample: result.visual_inputs_sample,
-                      }, null, 2)}
-                    </pre>
-                  </CardContent>
-                </Card>
-              )}
-            </CardContent>
-          </Card>
-        )}
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full h-10 px-4 py-2 bg-primary text-primary-foreground rounded-md font-medium hover:bg-primary/90 disabled:opacity-50"
+          >
+            {loading ? "Processing..." : "Upload & Parse"}
+          </button>
+        </form>
       </div>
     </div>
   );
