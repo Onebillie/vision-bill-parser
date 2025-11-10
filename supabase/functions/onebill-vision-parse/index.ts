@@ -133,7 +133,8 @@ serve(async (req) => {
     // If file_path is provided, construct the Supabase Storage URL
     if (file_path) {
       const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-      fileUrl = `${supabaseUrl}/storage/v1/object/public/bills/${file_path}`;
+      const encodedPath = file_path.split('/').map(encodeURIComponent).join('/');
+      fileUrl = `${supabaseUrl}/storage/v1/object/public/bills/${encodedPath}`;
       console.log("Using uploaded file:", fileUrl);
     }
     
@@ -156,31 +157,56 @@ serve(async (req) => {
     let { urls: imageUrls, usedConversion } = await getVisualInputs(fileUrl, isPdf);
     console.log(`Parsing with ${imageUrls.length} image(s), conversion: ${usedConversion}`);
 
-    // Build content array with text and images
+    // Build content array with text and images/documents
     const content: any[] = [{ type: "text", text: PARSE_PROMPT }];
-    
-    // Download images and convert to base64 data URLs
-    for (const imgUrl of imageUrls.slice(0, 3)) {
-      try {
-        console.log("Fetching image:", imgUrl);
-        const imageResponse = await fetch(imgUrl);
-        if (!imageResponse.ok) {
-          console.error(`Failed to fetch image: ${imageResponse.status}`);
-          continue;
+
+    if (isPdf && !usedConversion) {
+      // Send PDF as a document URL (ensure URL is safe for fetching)
+      const pdfUrl = imageUrls[0]?.replace(/ /g, "%20");
+      if (pdfUrl) {
+        content.push({ type: "document", document_url: { url: pdfUrl } });
+      }
+    } else {
+      // Download images and convert to base64 data URLs for reliable ingestion
+      for (const rawUrl of imageUrls.slice(0, 3)) {
+        const imgUrl = rawUrl.replace(/ /g, "%20"); // handle spaces in filenames
+        try {
+          console.log("Fetching image:", imgUrl);
+          const imageResponse = await fetch(imgUrl);
+          if (!imageResponse.ok) {
+            console.error(`Failed to fetch image: ${imageResponse.status}`);
+            continue;
+          }
+
+          const imageBuffer = await imageResponse.arrayBuffer();
+          const base64 = btoa(String.fromCharCode(...new Uint8Array(imageBuffer)));
+          const mimeType = imageResponse.headers.get('content-type') || 'image/png';
+          const dataUrl = `data:${mimeType};base64,${base64}`;
+
+          content.push({ type: "image_url", image_url: { url: dataUrl } });
+          console.log(`Added image as base64 data URL (${(base64.length / 1024).toFixed(1)}KB)`);
+        } catch (error) {
+          console.error("Error converting image to base64:", error);
         }
-        
-        const imageBuffer = await imageResponse.arrayBuffer();
-        const base64 = btoa(String.fromCharCode(...new Uint8Array(imageBuffer)));
-        const mimeType = imageResponse.headers.get('content-type') || 'image/png';
-        const dataUrl = `data:${mimeType};base64,${base64}`;
-        
-        content.push({ type: "image_url", image_url: { url: dataUrl } });
-        console.log(`Added image as base64 data URL (${(base64.length / 1024).toFixed(1)}KB)`);
-      } catch (error) {
-        console.error("Error converting image to base64:", error);
       }
     }
-    
+
+    // Fallback for PDFs: try converting to page images if nothing could be loaded
+    if (content.length === 1 && isPdf) {
+      const convertedUrls = await convertPdfToStorageUrls(fileUrl);
+      for (const rawUrl of convertedUrls.slice(0, 3)) {
+        const imgUrl = rawUrl.replace(/ /g, "%20");
+        try {
+          const imageResponse = await fetch(imgUrl);
+          if (!imageResponse.ok) continue;
+          const imageBuffer = await imageResponse.arrayBuffer();
+          const base64 = btoa(String.fromCharCode(...new Uint8Array(imageBuffer)));
+          const dataUrl = `data:image/png;base64,${base64}`;
+          content.push({ type: "image_url", image_url: { url: dataUrl } });
+        } catch (_e) {}
+      }
+    }
+
     if (content.length === 1) {
       throw new Error("No images could be loaded for parsing");
     }
