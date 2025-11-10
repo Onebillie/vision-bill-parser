@@ -128,9 +128,7 @@ serve(async (req) => {
     // If file_path is provided, construct the Supabase Storage URL
     if (file_path) {
       const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-      // Properly encode the file path to handle spaces and special characters
-      const encodedFilePath = encodeURIComponent(file_path);
-      fileUrl = `${supabaseUrl}/storage/v1/object/public/bills/${encodedFilePath}`;
+      fileUrl = `${supabaseUrl}/storage/v1/object/public/bills/${file_path}`;
       console.log("Using uploaded file:", fileUrl);
     }
     
