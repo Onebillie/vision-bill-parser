@@ -156,16 +156,33 @@ serve(async (req) => {
     let { urls: imageUrls, usedConversion } = await getVisualInputs(fileUrl, isPdf);
     console.log(`Parsing with ${imageUrls.length} image(s), conversion: ${usedConversion}`);
 
-    // Build content array with text and images/documents
+    // Build content array with text and images
     const content: any[] = [{ type: "text", text: PARSE_PROMPT }];
     
-    // If it's a PDF and we didn't convert yet, send as a document instead of image
-    if (isPdf && !usedConversion) {
-      content.push({ type: "document", document_url: { url: imageUrls[0] } });
-    } else {
-      for (const imgUrl of imageUrls.slice(0, 3)) {
-        content.push({ type: "image_url", image_url: { url: imgUrl } });
+    // Download images and convert to base64 data URLs
+    for (const imgUrl of imageUrls.slice(0, 3)) {
+      try {
+        console.log("Fetching image:", imgUrl);
+        const imageResponse = await fetch(imgUrl);
+        if (!imageResponse.ok) {
+          console.error(`Failed to fetch image: ${imageResponse.status}`);
+          continue;
+        }
+        
+        const imageBuffer = await imageResponse.arrayBuffer();
+        const base64 = btoa(String.fromCharCode(...new Uint8Array(imageBuffer)));
+        const mimeType = imageResponse.headers.get('content-type') || 'image/png';
+        const dataUrl = `data:${mimeType};base64,${base64}`;
+        
+        content.push({ type: "image_url", image_url: { url: dataUrl } });
+        console.log(`Added image as base64 data URL (${(base64.length / 1024).toFixed(1)}KB)`);
+      } catch (error) {
+        console.error("Error converting image to base64:", error);
       }
+    }
+    
+    if (content.length === 1) {
+      throw new Error("No images could be loaded for parsing");
     }
 
     // Call Lovable AI with vision model
