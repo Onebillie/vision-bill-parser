@@ -888,6 +888,17 @@ serve(async (req) => {
       hasGasData
     });
 
+    // Determine document type classification
+    if (hasElectricityData && hasGasData) {
+      console.log("📋 COMBINED BILL DETECTED: Contains both electricity and gas data - will send to multiple APIs");
+    } else if (hasElectricityData) {
+      console.log("⚡ ELECTRICITY BILL: Contains electricity data only");
+    } else if (hasGasData) {
+      console.log("🔥 GAS BILL: Contains gas data only");
+    } else {
+      console.log("📊 METER READING: Insufficient data for electricity/gas classification - defaulting to meter API");
+    }
+
     // Helper functions for normalization
     const normalizePhone = (p: string) => p.replace(/\s+/g, '');
     const prefixMcc = (val: string | undefined) => {
@@ -901,7 +912,7 @@ serve(async (req) => {
       return upper.startsWith("DG") ? upper : `DG${upper}`;
     };
 
-    // Prepare API calls based on classification
+    // Prepare API calls based on classification (supports multiple APIs for combined bills)
     const apiCalls: Array<{ endpoint: string; type: string; payload?: any }> = [];
     
     // Classify as Electricity-File if mprn or dg exists
