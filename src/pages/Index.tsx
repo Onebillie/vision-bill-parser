@@ -1,9 +1,11 @@
 import { useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "@/hooks/use-toast";
-// import { renderPdfFirstPageToBlob } from "@/lib/pdf-to-image";
 import { ApiRetryPanel } from "@/components/ApiRetryPanel";
 import { LiveTerminal } from "@/components/LiveTerminal";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import { JsonViewer } from "@/components/JsonViewer";
+import { Link } from "react-router-dom";
 
 const Index = () => {
   const [phone, setPhone] = useState("");
@@ -12,6 +14,7 @@ const Index = () => {
   const [failedApiCalls, setFailedApiCalls] = useState<any[]>([]);
   const [lastUploadedFilePath, setLastUploadedFilePath] = useState<string | null>(null);
   const [logs, setLogs] = useState<Array<{ timestamp: string; type: "info" | "success" | "error" | "warning"; message: string }>>([]);
+  const [parsedResults, setParsedResults] = useState<any>(null);
 
   const addLog = (type: "info" | "success" | "error" | "warning", message: string) => {
     const timestamp = new Date().toLocaleTimeString();
@@ -52,6 +55,7 @@ const Index = () => {
       });
 
       if (error) throw error;
+      setParsedResults(data);
       addLog("success", "AI parsing completed");
 
       if (data.classification) {
@@ -108,13 +112,27 @@ const Index = () => {
 
   return (
     <div className="min-h-screen bg-background p-6">
-      <div className="max-w-md mx-auto space-y-6">
-        <div className="text-center space-y-2">
-          <h1 className="text-3xl font-bold">OneBill Vision Parse</h1>
-          <p className="text-muted-foreground">Upload your utility bill</p>
-          <a href="/api-configs" className="text-sm text-primary hover:underline block">
-            Manage API Configurations
-          </a>
+      <div className="max-w-4xl mx-auto space-y-6">
+        <div className="space-y-4">
+          <div className="text-center space-y-2">
+            <h1 className="text-3xl font-bold">Utility Bill Parser</h1>
+            <p className="text-muted-foreground">Upload your bill and we'll extract the data</p>
+          </div>
+          <div className="flex gap-2 justify-center">
+            <Link 
+              to="/api-configs" 
+              className="text-sm text-primary hover:underline"
+            >
+              → API Configurations
+            </Link>
+            <span className="text-muted-foreground">|</span>
+            <Link 
+              to="/training-docs" 
+              className="text-sm text-primary hover:underline"
+            >
+              → Training Docs
+            </Link>
+          </div>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4 bg-card p-6 rounded-lg border">
@@ -153,15 +171,30 @@ const Index = () => {
 
         <LiveTerminal logs={logs} />
 
-        <ApiRetryPanel 
-          failedCalls={failedApiCalls}
-          phone={phone}
-          filePath={lastUploadedFilePath}
-          onRetrySuccess={() => {
-            setFailedApiCalls([]);
-            toast({ title: "All retries completed" });
-          }}
-        />
+        {parsedResults && (
+          <Accordion type="single" collapsible className="bg-card rounded-lg border">
+            <AccordionItem value="parsed-data" className="border-none">
+              <AccordionTrigger className="px-6 hover:no-underline">
+                <span className="text-lg font-semibold">View Full JSON Parsing Results</span>
+              </AccordionTrigger>
+              <AccordionContent className="px-6 pb-6">
+                <JsonViewer data={parsedResults} />
+              </AccordionContent>
+            </AccordionItem>
+          </Accordion>
+        )}
+
+        {failedApiCalls.length > 0 && (
+          <ApiRetryPanel 
+            failedCalls={failedApiCalls}
+            phone={phone}
+            filePath={lastUploadedFilePath}
+            onRetrySuccess={() => {
+              setFailedApiCalls([]);
+              toast({ title: "All retries completed" });
+            }}
+          />
+        )}
       </div>
     </div>
   );
