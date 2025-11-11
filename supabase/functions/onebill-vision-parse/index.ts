@@ -95,8 +95,60 @@ CRITICAL: Distinguish between:
 2. METER PHOTOS: Physical meter displays (may show serial numbers, GPRN/MPRN visible on meter but NO invoice/billing data)
 3. ANNUAL STATEMENTS: Multi-month usage summaries labeled "statement" or "annual review" (NOT bills)
 
+METER PHOTO PARSING SPECIFICATIONS:
+Photos are likely blurry, angled poorly, badly lit. Most important: Type of meter (electricity/gas) and the 5-digit reading(s).
+
+1) CLASSIFY UTILITY FIRST:
+   GAS INDICATORS:
+   - Unit m³ or label "Meter Index … m³"
+   - Roller counter with last digit(s) on RED background or with decimal
+   - Models: BK-G4, G4, Apator G4, Landis+Gyr L210 (gas smart)
+   - Labels: "Gas Networks Ireland", "Bord Gáis"
+   
+   ELECTRICITY INDICATORS:
+   - Unit kWh (or kvarh shown nearby)
+   - Phrases/labels: A+, T1/T2, ESB Networks, Sagemcom, Kamstrup
+   
+   Return: utility = "gas" or "electricity"
+
+2) EXTRACT READINGS (critical rules):
+   GAS METERS (m³):
+   - Use integer BEFORE decimal point or red digits
+   - Examples:
+     * "Meter Index 02331.350 m³" → read_value=2331
+     * Roller "12038 8 m³" (final red digit is decimal) → read_value=12038
+     * "15019[red 57] m³" → read_value=15019
+     * "17113[red 5] m³" → read_value=17113
+   - Fields: read_value (integer), unit="m3"
+   - Strip leading zeros: 02331 → 2331
+   
+   ELECTRICITY METERS (kWh):
+   - Capture main kWh value shown
+   - Examples:
+     * "39147 kWh" → read_value=39147
+     * "I.8.0 A+ 3359 kWh" → read_value=3359
+   - If BOTH T1 and T2 visible: extract each AND compute total = T1 + T2
+   - Digital meters have multiple reads (TOU/Time of use tariffs, import/export)
+   - Photos may show button cycling/menu navigation - read ALL visible values
+   - Prefer I.8.0 (total) if exists, else send currently displayed T-register
+   - Field: read_value (integer), unit="kWh", register (T1/T2/I.8.0)
+
+3) ALWAYS INCLUDE:
+   - meter_make, meter_model if visible (Elster, BK-G4, Sagemcom XS211, Landis+Gyr L210, Kamstrup, Apator G4)
+   - serial_number if visible (barcode/plate)
+   - register if shown (T1, T2, I.8.0)
+   - confidence (0-1) for detection accuracy and parsed reading accuracy
+   - raw_text (OCR'd text block for audit)
+
+4) EDGE CASES & VALIDATION:
+   - Strip leading zeros (02331 → 2331)
+   - Reject clearly partial frames (cropped counter, unreadable units) with is_meter=false
+   - NEVER convert gas m³ to kWh
+   - Round DOWN on gas where decimals/colored digits appear
+   - For electricity with multiple registers: prefer I.8.0 total if exists
+
 For METER PHOTOS: 
-- Extract: meter_manufacturer, meter_model, meter_serial_number, current_reading_display, meter_type, visible_identifiers
+- Extract: meter_manufacturer, meter_model, meter_serial_number, current_reading_display, meter_type, visible_identifiers, utility, read_value, unit, register, confidence, raw_text
 - Leave blank: invoice_number, account_number, billing_period, charges, financial fields
 
 For UTILITY BILLS:
