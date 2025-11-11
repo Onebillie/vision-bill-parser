@@ -880,26 +880,30 @@ serve(async (req) => {
 
     // Check if electricity has IDENTIFIER and BILL DATA (not just identifier)
     const hasElectricityIdentifier = !!(mprn || dg);
-    const hasElectricityBillData = !!(
-      electricityData?.electricity_details?.invoice_number ||
-      electricityData?.electricity_details?.account_number ||
-      electricityData?.supplier_details?.billing_period ||
-      (electricityData?.financial_information?.total_due && electricityData.financial_information.total_due > 0) ||
-      (electricityData?.charges_and_usage?.meter_readings && electricityData.charges_and_usage.meter_readings.length > 0)
-    );
+    // Count solid billing indicators (require at least 2 for bill classification)
+    const electricityBillingIndicators = [
+      !!electricityData?.electricity_details?.invoice_number,
+      !!electricityData?.electricity_details?.account_number,
+      !!electricityData?.supplier_details?.billing_period,
+      !!(electricityData?.financial_information?.total_due && electricityData.financial_information.total_due > 0),
+      !!(electricityData?.charges_and_usage?.unit_rates && electricityData.charges_and_usage.unit_rates.length > 0)
+    ].filter(Boolean).length;
+    const hasElectricityBillData = electricityBillingIndicators >= 2;
     const hasElectricityData = hasElectricityIdentifier && hasElectricityBillData;
     
     // Check if gas has IDENTIFIER and BILL DATA (not just identifier)
     const gasData = parsedData.bills.gas?.[0];
     const gprn = gasData?.gas_details?.meter_details?.gprn;
     const hasGasIdentifier = !!gprn;
-    const hasGasBillData = !!(
-      gasData?.gas_details?.invoice_number ||
-      gasData?.gas_details?.account_number ||
-      gasData?.supplier_details?.billing_period ||
-      (gasData?.financial_information?.total_due && gasData.financial_information.total_due > 0) ||
-      (gasData?.charges_and_usage?.meter_readings && gasData.charges_and_usage.meter_readings.length > 0)
-    );
+    // Count solid billing indicators (require at least 2 for bill classification)
+    const gasBillingIndicators = [
+      !!gasData?.gas_details?.invoice_number,
+      !!gasData?.gas_details?.account_number,
+      !!gasData?.supplier_details?.billing_period,
+      !!(gasData?.financial_information?.total_due && gasData.financial_information.total_due > 0),
+      !!(gasData?.charges_and_usage?.unit_rates && gasData.charges_and_usage.unit_rates.length > 0)
+    ].filter(Boolean).length;
+    const hasGasBillData = gasBillingIndicators >= 2;
     const hasGasData = hasGasIdentifier && hasGasBillData;
     
     console.log("Classification check:", { 
@@ -908,9 +912,11 @@ serve(async (req) => {
       mcc,
       gprn,
       hasElectricityIdentifier,
+      electricityBillingIndicators,
       hasElectricityBillData,
       hasElectricityData,
       hasGasIdentifier,
+      gasBillingIndicators,
       hasGasBillData,
       hasGasData
     });
