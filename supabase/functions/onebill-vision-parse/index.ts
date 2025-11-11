@@ -90,6 +90,12 @@ async function convertPdfToStorageUrls(pdfUrl: string): Promise<string[]> {
 
 const PARSE_PROMPT = `Parse a single Irish customer bill from the page images provided. Bills may bundle utilities (electricity and gas). Detect which utilities are present and disaggregate them. Return ONE JSON object only. No prose or notes.
 
+IMPORTANT: Distinguish between:
+- UTILITY BILLS: Documents with invoice numbers, account numbers, billing periods, charges, and financial data
+- METER PHOTOS: Photos of physical gas or electricity meters (may show GPRN/MPRN on the meter face but contain NO billing/invoice data)
+
+For METER PHOTOS: Leave invoice_number, account_number, billing_period, and financial fields empty/zero since they are not bills.
+
 Rules:
 - Dates: "YYYY-MM-DD"; unknown → "0000-00-00".
 - Numbers (rates/amounts/readings): numeric; unknown → 0.
@@ -867,36 +873,59 @@ serve(async (req) => {
     }
 
     // Document classification based on parsed fields
-    // Check for electricity fields (mprn or dg)
     const electricityData = parsedData.bills.electricity?.[0];
     const mprn = electricityData?.electricity_details?.meter_details?.mprn;
     const dg = electricityData?.electricity_details?.meter_details?.dg;
     const mcc = electricityData?.electricity_details?.meter_details?.mcc;
-    const hasElectricityData = !!(mprn || dg);
+
+    // Check if electricity has IDENTIFIER and BILL DATA (not just identifier)
+    const hasElectricityIdentifier = !!(mprn || dg);
+    const hasElectricityBillData = !!(
+      electricityData?.electricity_details?.invoice_number ||
+      electricityData?.electricity_details?.account_number ||
+      electricityData?.supplier_details?.billing_period ||
+      (electricityData?.financial_information?.total_due && electricityData.financial_information.total_due > 0) ||
+      (electricityData?.charges_and_usage?.meter_readings && electricityData.charges_and_usage.meter_readings.length > 0)
+    );
+    const hasElectricityData = hasElectricityIdentifier && hasElectricityBillData;
     
-    // Check for gas fields (gprn)
+    // Check if gas has IDENTIFIER and BILL DATA (not just identifier)
     const gasData = parsedData.bills.gas?.[0];
     const gprn = gasData?.gas_details?.meter_details?.gprn;
-    const hasGasData = !!gprn;
+    const hasGasIdentifier = !!gprn;
+    const hasGasBillData = !!(
+      gasData?.gas_details?.invoice_number ||
+      gasData?.gas_details?.account_number ||
+      gasData?.supplier_details?.billing_period ||
+      (gasData?.financial_information?.total_due && gasData.financial_information.total_due > 0) ||
+      (gasData?.charges_and_usage?.meter_readings && gasData.charges_and_usage.meter_readings.length > 0)
+    );
+    const hasGasData = hasGasIdentifier && hasGasBillData;
     
     console.log("Classification check:", { 
       mprn, 
       dg, 
       mcc,
       gprn,
+      hasElectricityIdentifier,
+      hasElectricityBillData,
       hasElectricityData,
+      hasGasIdentifier,
+      hasGasBillData,
       hasGasData
     });
 
     // Determine document type classification
     if (hasElectricityData && hasGasData) {
-      console.log("📋 COMBINED BILL DETECTED: Contains both electricity and gas data - will send to multiple APIs");
+      console.log("📋 COMBINED BILL DETECTED: Contains both electricity and gas billing data - will send to multiple APIs");
     } else if (hasElectricityData) {
-      console.log("⚡ ELECTRICITY BILL: Contains electricity data only");
+      console.log("⚡ ELECTRICITY BILL: Contains electricity billing data (identifier + invoice/charges)");
     } else if (hasGasData) {
-      console.log("🔥 GAS BILL: Contains gas data only");
+      console.log("🔥 GAS BILL: Contains gas billing data (identifier + invoice/charges)");
+    } else if (hasElectricityIdentifier || hasGasIdentifier) {
+      console.log("📸 METER PHOTO: Has identifier visible but no billing data - defaulting to meter API");
     } else {
-      console.log("📊 METER READING: Insufficient data for electricity/gas classification - defaulting to meter API");
+      console.log("📊 METER READING: No identifiers or billing data - defaulting to meter API");
     }
 
     // Helper functions for normalization
