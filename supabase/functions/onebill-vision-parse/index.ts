@@ -113,9 +113,10 @@ customer_name, billing_address (structured object), supply_address, vat_number, 
 **Billing Period:**
 billing_period.start_date, billing_period.end_date, billing_period.days_count, issue_date, billing_date, due_date, payment_due_date
 
-**Meter Identifiers (Mandatory for routing):**
-Electricity: mprn, dg, mcc_type, profile
-Gas: gprn
+**Meter Identifiers:**
+Electricity (mandatory): mprn, dg, mcc_type
+Electricity (optional): profile (01, 02, 04, 27, etc - not all bills have this)
+Gas (mandatory): gprn
 Meter Photo: meter_serial_number, meter_manufacturer, meter_model
 
 **Meter Readings Array (structured):**
