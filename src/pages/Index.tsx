@@ -175,9 +175,33 @@ const Index = () => {
           <Accordion type="single" collapsible className="bg-card rounded-lg border">
             <AccordionItem value="parsed-data" className="border-none">
               <AccordionTrigger className="px-6 hover:no-underline">
-                <span className="text-lg font-semibold">View Full JSON Parsing Results</span>
+                <span className="text-lg font-semibold">
+                  View Full JSON Parsing Results
+                  {parsedResults.classification_details && (
+                    <span className="ml-2 text-sm text-muted-foreground font-normal">
+                      (Electricity: {parsedResults.classification_details.electricity_billing_indicators}/6 indicators, 
+                      Gas: {parsedResults.classification_details.gas_billing_indicators}/6 indicators)
+                    </span>
+                  )}
+                </span>
               </AccordionTrigger>
-              <AccordionContent className="px-6 pb-6">
+              <AccordionContent className="px-6 pb-6 space-y-4">
+                {parsedResults.classification_details?.electricity_date_warnings?.length > 0 && (
+                  <div className="p-3 bg-warning/10 border border-warning rounded-md">
+                    <p className="text-sm font-semibold text-warning mb-2">⚠️ Electricity Date Warnings:</p>
+                    {parsedResults.classification_details.electricity_date_warnings.map((warning: string, idx: number) => (
+                      <p key={idx} className="text-xs text-warning/90">{warning}</p>
+                    ))}
+                  </div>
+                )}
+                {parsedResults.classification_details?.gas_date_warnings?.length > 0 && (
+                  <div className="p-3 bg-warning/10 border border-warning rounded-md">
+                    <p className="text-sm font-semibold text-warning mb-2">⚠️ Gas Date Warnings:</p>
+                    {parsedResults.classification_details.gas_date_warnings.map((warning: string, idx: number) => (
+                      <p key={idx} className="text-xs text-warning/90">{warning}</p>
+                    ))}
+                  </div>
+                )}
                 <JsonViewer data={parsedResults} />
               </AccordionContent>
             </AccordionItem>

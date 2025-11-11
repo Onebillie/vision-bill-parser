@@ -88,23 +88,59 @@ async function convertPdfToStorageUrls(pdfUrl: string): Promise<string[]> {
   }
 }
 
-const PARSE_PROMPT = `Parse a single Irish customer bill from the page images provided. Bills may bundle utilities (electricity and gas). Detect which utilities are present and disaggregate them. Return ONE JSON object only. No prose or notes.
+const PARSE_PROMPT = `Parse Irish utility bills comprehensively. Extract EVERY visible field. Return ONE JSON object only. No prose.
 
-IMPORTANT: Distinguish between:
-- UTILITY BILLS: Documents with invoice numbers, account numbers, billing periods, charges, and financial data
-- METER PHOTOS: Photos of physical gas or electricity meters (may show GPRN/MPRN on the meter face but contain NO billing/invoice data)
+CRITICAL: Distinguish between:
+1. UTILITY BILLS: Documents with invoice numbers, account numbers, billing periods, meter readings, charges breakdown, and financial totals
+2. METER PHOTOS: Physical meter displays (may show serial numbers, GPRN/MPRN visible on meter but NO invoice/billing data)
+3. ANNUAL STATEMENTS: Multi-month usage summaries labeled "statement" or "annual review" (NOT bills)
 
-For METER PHOTOS: Leave invoice_number, account_number, billing_period, and financial fields empty/zero since they are not bills.
+For METER PHOTOS: 
+- Extract: meter_manufacturer, meter_model, meter_serial_number, current_reading_display, meter_type, visible_identifiers
+- Leave blank: invoice_number, account_number, billing_period, charges, financial fields
+
+For UTILITY BILLS:
+- Extract EVERY field visible: customer info, service addresses, all meter readings with dates and types, unit rates, charges breakdown, PSO levy, carbon tax, VAT details, discounts, payment methods, direct debit info, contract dates, tariff names, carbon emissions, efficiency tips
+- Meter readings MUST include: meter_number, read_date, read_type (A/E/CU), previous_reading, current_reading, units_consumed, unit_type (Day/Night/Peak/etc), rate_per_unit
+- Validate: All meter reading dates MUST fall within billing_period dates
+- Billing period: Extract exact start_date and end_date in YYYY-MM-DD format, calculate days_count
+
+COMPREHENSIVE FIELD LIST TO EXTRACT:
+
+**Customer & Account:**
+customer_name, billing_address (structured object), supply_address, vat_number, vat_registration_address, account_number, invoice_number, bill_number
+
+**Billing Period:**
+billing_period.start_date, billing_period.end_date, billing_period.days_count, issue_date, billing_date, due_date, payment_due_date
+
+**Meter Identifiers (Mandatory for routing):**
+Electricity: mprn, dg, mcc_type, profile
+Gas: gprn
+Meter Photo: meter_serial_number, meter_manufacturer, meter_model
+
+**Meter Readings Array (structured):**
+Each reading: meter_number, meter_serial, read_date, read_type, previous_reading, current_reading, interim_reading, multiplier, units_consumed, unit_type, rate_per_unit, total_charge, time_window
+
+**Charges Breakdown:**
+electricity_charges array (description, units, rate, amount), standing_charge, pso_levy, carbon_tax, discounts, microgen_credit, subtotal_before_vat, vat_rate, vat_amount, total_including_vat
+
+**Financial:**
+previous_balance, payments_received, amount_outstanding, total_amount_due, direct_debit_collection_date
+
+**Broadband:**
+plan_name, phone_number, broadband_service_number, uan_numbers, iban, bic
+
+**Extra Context:**
+service_provider, tariff_name, contract_end_date, payment_method, average_daily_use, comparison_same_period_last_year, comparison_average_residential, carbon_emissions_kg, energy_efficiency_tips, emergency_contact_numbers, customer_service_hours, complaint_process_info, fuel_mix_information
 
 Rules:
-- Dates: "YYYY-MM-DD"; unknown → "0000-00-00".
-- Numbers (rates/amounts/readings): numeric; unknown → 0.
-- Booleans: true/false (not strings).
-- Currencies: "cent" or "euro".
-- Standing charge period: "daily" or "annual".
-- Always include all top-level sections; if a utility is not present, return its array as [].
-- Detect utilities using strong signals (MPRN/MCC/DG ⇒ electricity; GPRN/carbon tax ⇒ gas; broadband cues for broadband).
-- Do not rename, add, or remove keys.`;
+- Dates: "YYYY-MM-DD"; unknown → "0000-00-00"
+- Numbers: numeric; unknown → 0
+- Booleans: true/false (not strings)
+- Currencies: "cent" or "euro"
+- Always include all top-level sections; empty arrays if not present
+- Do NOT hallucinate GPRN from meter serial numbers or barcodes on meter photos
+- Extract identifiers ONLY when clearly labeled as MPRN/GPRN, not from random numbers`;
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -880,31 +916,73 @@ serve(async (req) => {
 
     // Check if electricity has IDENTIFIER and BILL DATA (not just identifier)
     const hasElectricityIdentifier = !!(mprn || dg);
-    // Count solid billing indicators (require at least 2 for bill classification)
+    // ENHANCED: Count solid billing indicators (require at least 3 for strict bill classification)
     const electricityBillingIndicators = [
       !!electricityData?.electricity_details?.invoice_number,
       !!electricityData?.electricity_details?.account_number,
       !!electricityData?.supplier_details?.billing_period,
       !!(electricityData?.financial_information?.total_due && electricityData.financial_information.total_due > 0),
-      !!(electricityData?.charges_and_usage?.unit_rates && electricityData.charges_and_usage.unit_rates.length > 0)
+      !!(electricityData?.charges_and_usage?.meter_readings && electricityData.charges_and_usage.meter_readings.length > 0),
+      !!(electricityData?.charges_and_usage?.unit_rates)
     ].filter(Boolean).length;
-    const hasElectricityBillData = electricityBillingIndicators >= 2;
+    const hasElectricityBillData = electricityBillingIndicators >= 3;
     const hasElectricityData = hasElectricityIdentifier && hasElectricityBillData;
     
     // Check if gas has IDENTIFIER and BILL DATA (not just identifier)
     const gasData = parsedData.bills.gas?.[0];
     const gprn = gasData?.gas_details?.meter_details?.gprn;
     const hasGasIdentifier = !!gprn;
-    // Count solid billing indicators (require at least 2 for bill classification)
+    // ENHANCED: Count solid billing indicators (require at least 3 for strict bill classification)
     const gasBillingIndicators = [
       !!gasData?.gas_details?.invoice_number,
       !!gasData?.gas_details?.account_number,
       !!gasData?.supplier_details?.billing_period,
       !!(gasData?.financial_information?.total_due && gasData.financial_information.total_due > 0),
-      !!(gasData?.charges_and_usage?.unit_rates && gasData.charges_and_usage.unit_rates.length > 0)
+      !!(gasData?.charges_and_usage?.meter_readings && gasData.charges_and_usage.meter_readings.length > 0),
+      !!(gasData?.charges_and_usage?.unit_rates)
     ].filter(Boolean).length;
-    const hasGasBillData = gasBillingIndicators >= 2;
+    const hasGasBillData = gasBillingIndicators >= 3;
     const hasGasData = hasGasIdentifier && hasGasBillData;
+    
+    // Date correlation validation for meter readings
+    const validateMeterReadingDates = (billingPeriod: string, readings: any[]): string[] => {
+      const warnings: string[] = [];
+      if (!billingPeriod || !readings || readings.length === 0) return warnings;
+      
+      // Parse billing period (format: "DD MMM YYYY - DD MMM YYYY" or similar)
+      const periodMatch = billingPeriod.match(/(\d{4}-\d{2}-\d{2})/g);
+      if (!periodMatch || periodMatch.length < 2) return warnings;
+      
+      const [periodStart, periodEnd] = periodMatch;
+      const startDate = new Date(periodStart);
+      const endDate = new Date(periodEnd);
+      
+      readings.forEach((reading, idx) => {
+        const readDate = reading.date || reading.read_date;
+        if (!readDate || readDate === "0000-00-00") return;
+        
+        const date = new Date(readDate);
+        if (date < startDate || date > endDate) {
+          warnings.push(`Meter reading ${idx + 1} date ${readDate} falls outside billing period ${periodStart} to ${periodEnd}`);
+        }
+      });
+      
+      return warnings;
+    };
+    
+    const electricityDateWarnings = electricityData?.supplier_details?.billing_period && electricityData?.charges_and_usage?.meter_readings
+      ? validateMeterReadingDates(electricityData.supplier_details.billing_period, electricityData.charges_and_usage.meter_readings)
+      : [];
+    const gasDateWarnings = gasData?.supplier_details?.billing_period && gasData?.charges_and_usage?.meter_readings
+      ? validateMeterReadingDates(gasData.supplier_details.billing_period, gasData.charges_and_usage.meter_readings)
+      : [];
+    
+    if (electricityDateWarnings.length > 0) {
+      console.warn("⚠️ Electricity meter reading date warnings:", electricityDateWarnings);
+    }
+    if (gasDateWarnings.length > 0) {
+      console.warn("⚠️ Gas meter reading date warnings:", gasDateWarnings);
+    }
     
     console.log("Classification check:", { 
       mprn, 
@@ -918,18 +996,20 @@ serve(async (req) => {
       hasGasIdentifier,
       gasBillingIndicators,
       hasGasBillData,
-      hasGasData
+      hasGasData,
+      electricityDateWarnings: electricityDateWarnings.length,
+      gasDateWarnings: gasDateWarnings.length
     });
 
-    // Determine document type classification
+    // Determine document type classification with enhanced logic
     if (hasElectricityData && hasGasData) {
-      console.log("📋 COMBINED BILL DETECTED: Contains both electricity and gas billing data - will send to multiple APIs");
+      console.log("📋 COMBINED BILL DETECTED: Contains both electricity and gas billing data (3+ indicators each) - will send to multiple APIs");
     } else if (hasElectricityData) {
-      console.log("⚡ ELECTRICITY BILL: Contains electricity billing data (identifier + invoice/charges)");
+      console.log(`⚡ ELECTRICITY BILL: Contains electricity billing data (identifier + ${electricityBillingIndicators}/6 billing indicators)`);
     } else if (hasGasData) {
-      console.log("🔥 GAS BILL: Contains gas billing data (identifier + invoice/charges)");
+      console.log(`🔥 GAS BILL: Contains gas billing data (identifier + ${gasBillingIndicators}/6 billing indicators)`);
     } else if (hasElectricityIdentifier || hasGasIdentifier) {
-      console.log("📸 METER PHOTO: Has identifier visible but no billing data - defaulting to meter API");
+      console.log(`📸 METER PHOTO: Has identifier visible but insufficient billing data (E:${electricityBillingIndicators}, G:${gasBillingIndicators}) - defaulting to meter API`);
     } else {
       console.log("📊 METER READING: No identifiers or billing data - defaulting to meter API");
     }
@@ -1109,6 +1189,12 @@ serve(async (req) => {
           gas: hasGasData,
           meter: !hasElectricityData && !hasGasData,
           broadband: parsedData.bills.broadband?.length > 0
+        },
+        classification_details: {
+          electricity_billing_indicators: electricityBillingIndicators,
+          gas_billing_indicators: gasBillingIndicators,
+          electricity_date_warnings: electricityDateWarnings,
+          gas_date_warnings: gasDateWarnings
         },
         api_calls: apiResults,
         input_type: isPdf ? "pdf" : "image",
