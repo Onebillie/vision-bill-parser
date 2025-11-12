@@ -973,41 +973,127 @@ serve(async (req) => {
       parsedData.bills.broadband = [];
     }
 
-    // Document classification based on parsed fields
+    // ========== POST-PARSING DATA CONSISTENCY VALIDATION ==========
+    // Cross-check parsed data to detect and remove hallucinated fields
+    console.log("🔍 Running data consistency validation...");
+    
     const electricityData = parsedData.bills.electricity?.[0];
-    const mprn = electricityData?.electricity_details?.meter_details?.mprn;
-    const dg = electricityData?.electricity_details?.meter_details?.dg;
-    const mcc = electricityData?.electricity_details?.meter_details?.mcc;
+    const gasData = parsedData.bills.gas?.[0];
+    
+    // Count substantial data points for each service
+    const countElectricityData = () => {
+      if (!electricityData) return 0;
+      return [
+        !!electricityData.electricity_details?.invoice_number,
+        !!electricityData.electricity_details?.account_number,
+        !!electricityData.electricity_details?.meter_details?.mprn,
+        !!electricityData.electricity_details?.meter_details?.dg,
+        !!electricityData.supplier_details?.billing_period,
+        !!electricityData.charges_and_usage?.meter_readings?.length,
+        !!electricityData.charges_and_usage?.unit_rates,
+        !!(electricityData.financial_information?.total_due && electricityData.financial_information.total_due > 0)
+      ].filter(Boolean).length;
+    };
+    
+    const countGasData = () => {
+      if (!gasData) return 0;
+      return [
+        !!gasData.gas_details?.invoice_number,
+        !!gasData.gas_details?.account_number,
+        !!gasData.gas_details?.meter_details?.gprn,
+        !!gasData.supplier_details?.billing_period,
+        !!gasData.charges_and_usage?.meter_readings?.length,
+        !!gasData.charges_and_usage?.unit_rates,
+        !!(gasData.financial_information?.total_due && gasData.financial_information.total_due > 0)
+      ].filter(Boolean).length;
+    };
+    
+    const electricityDataPoints = countElectricityData();
+    const gasDataPoints = countGasData();
+    
+    console.log("Data points:", { electricity: electricityDataPoints, gas: gasDataPoints });
+    
+    // Check service provider names for single-service validation
+    const electricityProvider = electricityData?.supplier_details?.name?.toLowerCase() || "";
+    const gasProvider = gasData?.supplier_details?.name?.toLowerCase() || "";
+    
+    const electricityOnlyProviders = ["electric ireland", "esb networks", "esb energy", "energia"];
+    const gasOnlyProviders = ["flogas", "natural gas"];
+    
+    const isElectricityOnlyProvider = electricityOnlyProviders.some(p => electricityProvider.includes(p));
+    const isGasOnlyProvider = gasOnlyProviders.some(p => gasProvider.includes(p));
+    
+    // VALIDATION RULE 1: If one service has substantial data (4+) and the other has minimal data (≤2), clear the weak service
+    if (electricityDataPoints >= 4 && gasDataPoints <= 2 && gasDataPoints > 0) {
+      console.warn("⚠️ VALIDATION: Clearing gas data - electricity has substantial data but gas appears hallucinated");
+      parsedData.bills.gas = [];
+    } else if (gasDataPoints >= 4 && electricityDataPoints <= 2 && electricityDataPoints > 0) {
+      console.warn("⚠️ VALIDATION: Clearing electricity data - gas has substantial data but electricity appears hallucinated");
+      parsedData.bills.electricity = [];
+    }
+    
+    // VALIDATION RULE 2: If service provider is known single-service, clear the other service
+    if (isElectricityOnlyProvider && gasDataPoints > 0) {
+      console.warn(`⚠️ VALIDATION: Clearing gas data - provider '${electricityProvider}' is electricity-only`);
+      parsedData.bills.gas = [];
+    } else if (isGasOnlyProvider && electricityDataPoints > 0) {
+      console.warn(`⚠️ VALIDATION: Clearing electricity data - provider '${gasProvider}' is gas-only`);
+      parsedData.bills.electricity = [];
+    }
+    
+    // VALIDATION RULE 3: If identifier exists but NO billing fields (invoice, account, billing period), clear that service
+    const hasElectricityIdentifier = !!(electricityData?.electricity_details?.meter_details?.mprn || electricityData?.electricity_details?.meter_details?.dg);
+    const hasElectricityBillingFields = !!(electricityData?.electricity_details?.invoice_number || electricityData?.electricity_details?.account_number || electricityData?.supplier_details?.billing_period);
+    
+    const hasGasIdentifier = !!gasData?.gas_details?.meter_details?.gprn;
+    const hasGasBillingFields = !!(gasData?.gas_details?.invoice_number || gasData?.gas_details?.account_number || gasData?.supplier_details?.billing_period);
+    
+    if (hasElectricityIdentifier && !hasElectricityBillingFields && electricityDataPoints <= 1) {
+      console.warn("⚠️ VALIDATION: Clearing electricity data - has identifier but zero billing fields (likely meter photo)");
+      parsedData.bills.electricity = [];
+    }
+    
+    if (hasGasIdentifier && !hasGasBillingFields && gasDataPoints <= 1) {
+      console.warn("⚠️ VALIDATION: Clearing gas data - has identifier but zero billing fields (likely meter photo or hallucination)");
+      parsedData.bills.gas = [];
+    }
+    
+    console.log("✅ Data consistency validation complete");
+    // ========== END VALIDATION ==========
 
-    // Check if electricity has IDENTIFIER and BILL DATA (not just identifier)
-    const hasElectricityIdentifier = !!(mprn || dg);
+    // Document classification based on parsed fields (using validated data - reuse variables from validation)
+    const mprn = parsedData.bills.electricity?.[0]?.electricity_details?.meter_details?.mprn;
+    const dg = parsedData.bills.electricity?.[0]?.electricity_details?.meter_details?.dg;
+    const mcc = parsedData.bills.electricity?.[0]?.electricity_details?.meter_details?.mcc;
+
+    // Check if electricity has IDENTIFIER and BILL DATA (not just identifier) - reuse from validation
+    const hasElectricityIdentifierForClassification = !!(mprn || dg);
     // ENHANCED: Count solid billing indicators (require at least 3 for strict bill classification)
     const electricityBillingIndicators = [
-      !!electricityData?.electricity_details?.invoice_number,
-      !!electricityData?.electricity_details?.account_number,
-      !!electricityData?.supplier_details?.billing_period,
-      !!(electricityData?.financial_information?.total_due && electricityData.financial_information.total_due > 0),
-      !!(electricityData?.charges_and_usage?.meter_readings && electricityData.charges_and_usage.meter_readings.length > 0),
-      !!(electricityData?.charges_and_usage?.unit_rates)
+      !!parsedData.bills.electricity?.[0]?.electricity_details?.invoice_number,
+      !!parsedData.bills.electricity?.[0]?.electricity_details?.account_number,
+      !!parsedData.bills.electricity?.[0]?.supplier_details?.billing_period,
+      !!(parsedData.bills.electricity?.[0]?.financial_information?.total_due && parsedData.bills.electricity[0].financial_information.total_due > 0),
+      !!(parsedData.bills.electricity?.[0]?.charges_and_usage?.meter_readings && parsedData.bills.electricity[0].charges_and_usage.meter_readings.length > 0),
+      !!(parsedData.bills.electricity?.[0]?.charges_and_usage?.unit_rates)
     ].filter(Boolean).length;
     const hasElectricityBillData = electricityBillingIndicators >= 3;
-    const hasElectricityData = hasElectricityIdentifier && hasElectricityBillData;
+    const hasElectricityData = hasElectricityIdentifierForClassification && hasElectricityBillData;
     
     // Check if gas has IDENTIFIER and BILL DATA (not just identifier)
-    const gasData = parsedData.bills.gas?.[0];
-    const gprn = gasData?.gas_details?.meter_details?.gprn;
-    const hasGasIdentifier = !!gprn;
+    const gprn = parsedData.bills.gas?.[0]?.gas_details?.meter_details?.gprn;
+    const hasGasIdentifierForClassification = !!gprn;
     // ENHANCED: Count solid billing indicators (require at least 3 for strict bill classification)
     const gasBillingIndicators = [
-      !!gasData?.gas_details?.invoice_number,
-      !!gasData?.gas_details?.account_number,
-      !!gasData?.supplier_details?.billing_period,
-      !!(gasData?.financial_information?.total_due && gasData.financial_information.total_due > 0),
-      !!(gasData?.charges_and_usage?.meter_readings && gasData.charges_and_usage.meter_readings.length > 0),
-      !!(gasData?.charges_and_usage?.unit_rates)
+      !!parsedData.bills.gas?.[0]?.gas_details?.invoice_number,
+      !!parsedData.bills.gas?.[0]?.gas_details?.account_number,
+      !!parsedData.bills.gas?.[0]?.supplier_details?.billing_period,
+      !!(parsedData.bills.gas?.[0]?.financial_information?.total_due && parsedData.bills.gas[0].financial_information.total_due > 0),
+      !!(parsedData.bills.gas?.[0]?.charges_and_usage?.meter_readings && parsedData.bills.gas[0].charges_and_usage.meter_readings.length > 0),
+      !!(parsedData.bills.gas?.[0]?.charges_and_usage?.unit_rates)
     ].filter(Boolean).length;
     const hasGasBillData = gasBillingIndicators >= 3;
-    const hasGasData = hasGasIdentifier && hasGasBillData;
+    const hasGasData = hasGasIdentifierForClassification && hasGasBillData;
     
     // Date correlation validation for meter readings
     const validateMeterReadingDates = (billingPeriod: string, readings: any[]): string[] => {
@@ -1035,11 +1121,11 @@ serve(async (req) => {
       return warnings;
     };
     
-    const electricityDateWarnings = electricityData?.supplier_details?.billing_period && electricityData?.charges_and_usage?.meter_readings
-      ? validateMeterReadingDates(electricityData.supplier_details.billing_period, electricityData.charges_and_usage.meter_readings)
+    const electricityDateWarnings = parsedData.bills.electricity?.[0]?.supplier_details?.billing_period && parsedData.bills.electricity[0]?.charges_and_usage?.meter_readings
+      ? validateMeterReadingDates(parsedData.bills.electricity[0].supplier_details.billing_period, parsedData.bills.electricity[0].charges_and_usage.meter_readings)
       : [];
-    const gasDateWarnings = gasData?.supplier_details?.billing_period && gasData?.charges_and_usage?.meter_readings
-      ? validateMeterReadingDates(gasData.supplier_details.billing_period, gasData.charges_and_usage.meter_readings)
+    const gasDateWarnings = parsedData.bills.gas?.[0]?.supplier_details?.billing_period && parsedData.bills.gas[0]?.charges_and_usage?.meter_readings
+      ? validateMeterReadingDates(parsedData.bills.gas[0].supplier_details.billing_period, parsedData.bills.gas[0].charges_and_usage.meter_readings)
       : [];
     
     if (electricityDateWarnings.length > 0) {
@@ -1054,11 +1140,11 @@ serve(async (req) => {
       dg, 
       mcc,
       gprn,
-      hasElectricityIdentifier,
+      hasElectricityIdentifier: hasElectricityIdentifierForClassification,
       electricityBillingIndicators,
       hasElectricityBillData,
       hasElectricityData,
-      hasGasIdentifier,
+      hasGasIdentifier: hasGasIdentifierForClassification,
       gasBillingIndicators,
       hasGasBillData,
       hasGasData,
@@ -1073,7 +1159,7 @@ serve(async (req) => {
       console.log(`⚡ ELECTRICITY BILL: Contains electricity billing data (identifier + ${electricityBillingIndicators}/6 billing indicators)`);
     } else if (hasGasData) {
       console.log(`🔥 GAS BILL: Contains gas billing data (identifier + ${gasBillingIndicators}/6 billing indicators)`);
-    } else if (hasElectricityIdentifier || hasGasIdentifier) {
+    } else if (hasElectricityIdentifierForClassification || hasGasIdentifierForClassification) {
       console.log(`📸 METER PHOTO: Has identifier visible but insufficient billing data (E:${electricityBillingIndicators}, G:${gasBillingIndicators}) - defaulting to meter API`);
     } else {
       console.log("📊 METER READING: No identifiers or billing data - defaulting to meter API");
