@@ -90,6 +90,14 @@ async function convertPdfToStorageUrls(pdfUrl: string): Promise<string[]> {
 
 const PARSE_PROMPT = `Parse Irish utility bills comprehensively. Extract EVERY visible field. Return ONE JSON object only. No prose.
 
+⚠️ CRITICAL ANTI-HALLUCINATION RULES:
+1. NEVER invent, guess, or fabricate data that is not clearly visible
+2. If a field is not present, leave it EMPTY, null, or omit it completely
+3. DO NOT invent GPRNs, MPRNs, DG codes, MCC codes, account numbers, or invoice numbers
+4. Most bills are SINGLE-SERVICE (electricity OR gas only) - if you only see electricity data, leave ALL gas fields empty
+5. If you only see gas data, leave ALL electricity fields empty
+6. Combined bills are RARE and must have BOTH services CLEARLY visible with separate identifiers
+
 CRITICAL: Distinguish between:
 1. UTILITY BILLS: Documents with invoice numbers, account numbers, billing periods, meter readings, charges breakdown, and financial totals
 2. METER PHOTOS: Physical meter displays (may show serial numbers, GPRN/MPRN visible on meter but NO invoice/billing data)
@@ -153,6 +161,10 @@ For METER PHOTOS:
 
 For UTILITY BILLS:
 - Extract EVERY field visible: customer info, service addresses, all meter readings with dates and types, unit rates, charges breakdown, PSO levy, carbon tax, VAT details, discounts, payment methods, direct debit info, contract dates, tariff names, carbon emissions, efficiency tips
+- ⚠️ CRITICAL: Extract data ONLY for the service(s) present in the document
+- ⚠️ If you see ONLY electricity data (MPRN, DG, MCC, kWh charges), DO NOT populate ANY gas fields (leave gas array EMPTY)
+- ⚠️ If you see ONLY gas data (GPRN, m³ charges), DO NOT populate ANY electricity fields (leave electricity array EMPTY)
+- Most Irish bills are SINGLE-SERVICE - combined bills are uncommon and must show BOTH services with separate sections
 - Meter readings MUST include: meter_number, read_date, read_type (A/E/CU), previous_reading, current_reading, units_consumed, unit_type (Day/Night/Peak/etc), rate_per_unit
 - Validate: All meter reading dates MUST fall within billing_period dates
 - Billing period: Extract exact start_date and end_date in YYYY-MM-DD format, calculate days_count
