@@ -88,6 +88,130 @@ async function convertPdfToStorageUrls(pdfUrl: string): Promise<string[]> {
   }
 }
 
+// Calculate parsing confidence score (0-100%)
+function calculateConfidenceScore(parsedData: any, hasElectricityData: boolean, hasGasData: boolean): number {
+  let score = 0;
+  const weights = {
+    keyFields: 40,      // 40% for presence of key fields
+    dataCompleteness: 35, // 35% for completeness of billing data
+    dateConsistency: 25   // 25% for date consistency
+  };
+
+  // 1. Key Fields Score (40 points)
+  let keyFieldScore = 0;
+  const keyFieldsToCheck = [
+    { path: 'bills.customer[0].details.customer_name', points: 5 },
+    { path: 'bills.customer[0].details.address', points: 5 },
+    { path: 'bills.electricity[0].electricity_details.invoice_number', points: 7, condition: hasElectricityData },
+    { path: 'bills.electricity[0].electricity_details.account_number', points: 7, condition: hasElectricityData },
+    { path: 'bills.electricity[0].electricity_details.meter_details.mprn', points: 8, condition: hasElectricityData },
+    { path: 'bills.gas[0].gas_details.invoice_number', points: 7, condition: hasGasData },
+    { path: 'bills.gas[0].gas_details.account_number', points: 7, condition: hasGasData },
+    { path: 'bills.gas[0].gas_details.gprn', points: 8, condition: hasGasData }
+  ];
+
+  keyFieldsToCheck.forEach(field => {
+    // Skip if service not detected (condition explicitly false)
+    if ('condition' in field && field.condition === false) return;
+    
+    const value = field.path.split('.').reduce((obj, key) => obj?.[key], parsedData);
+    if (value && (typeof value !== 'string' || value.trim() !== '')) {
+      keyFieldScore += field.points;
+    }
+  });
+
+  score += Math.min(keyFieldScore, weights.keyFields);
+
+  // 2. Data Completeness Score (35 points)
+  let completenessScore = 0;
+  
+  if (hasElectricityData) {
+    const elec = parsedData.bills.electricity?.[0];
+    if (elec?.supplier_details?.billing_period) completenessScore += 5;
+    if (elec?.supplier_details?.issue_date) completenessScore += 3;
+    if (elec?.charges_and_usage?.meter_readings?.length > 0) completenessScore += 8;
+    if (elec?.charges_and_usage?.detailed_kWh_usage?.length > 0) completenessScore += 6;
+    if (elec?.charges_and_usage?.total_amount_due > 0) completenessScore += 6;
+    if (elec?.electricity_details?.meter_details?.dg) completenessScore += 4;
+    if (elec?.electricity_details?.meter_details?.mcc) completenessScore += 3;
+  }
+  
+  if (hasGasData) {
+    const gas = parsedData.bills.gas?.[0];
+    if (gas?.supplier_details?.billing_period) completenessScore += 5;
+    if (gas?.supplier_details?.issue_date) completenessScore += 3;
+    if (gas?.charges_and_usage?.meter_readings?.length > 0) completenessScore += 8;
+    if (gas?.charges_and_usage?.gas_usage?.length > 0) completenessScore += 6;
+    if (gas?.charges_and_usage?.total_amount_due > 0) completenessScore += 6;
+    if (gas?.gas_details?.conversion_factor) completenessScore += 3;
+    if (gas?.gas_details?.calorific_value) completenessScore += 4;
+  }
+
+  score += Math.min(completenessScore, weights.dataCompleteness);
+
+  // 3. Date Consistency Score (25 points)
+  let dateScore = 25; // Start with perfect score, deduct for issues
+  
+  const checkDateConsistency = (service: any, serviceName: string) => {
+    const billingPeriod = service?.supplier_details?.billing_period;
+    if (!billingPeriod) {
+      dateScore -= 5; // Missing billing period
+      return;
+    }
+
+    const periodMatch = billingPeriod.match(/(\d{2}\/\d{2}\/\d{4})\s*-\s*(\d{2}\/\d{2}\/\d{4})/);
+    if (!periodMatch) {
+      dateScore -= 3; // Invalid billing period format
+      return;
+    }
+
+    const [, startStr, endStr] = periodMatch;
+    const periodStart = parseDate(startStr);
+    const periodEnd = parseDate(endStr);
+
+    if (!periodStart || !periodEnd || periodStart >= periodEnd) {
+      dateScore -= 5; // Invalid date range
+      return;
+    }
+
+    // Check meter reading dates
+    const readings = service?.charges_and_usage?.meter_readings || [];
+    readings.forEach((reading: any) => {
+      if (reading.date) {
+        const readDate = parseDate(reading.date);
+        if (readDate && (readDate < periodStart || readDate > periodEnd)) {
+          dateScore -= 3; // Reading date outside billing period
+        }
+      }
+    });
+
+    // Check issue date
+    const issueDate = service?.supplier_details?.issue_date;
+    if (issueDate) {
+      const issue = parseDate(issueDate);
+      if (issue && issue < periodEnd) {
+        dateScore -= 2; // Issue date before period end
+      }
+    }
+  };
+
+  if (hasElectricityData) checkDateConsistency(parsedData.bills.electricity?.[0], 'electricity');
+  if (hasGasData) checkDateConsistency(parsedData.bills.gas?.[0], 'gas');
+
+  score += Math.max(dateScore, 0);
+
+  return Math.round(Math.min(score, 100));
+}
+
+// Parse date in DD/MM/YYYY format
+function parseDate(dateStr: string): Date | null {
+  if (!dateStr) return null;
+  const match = dateStr.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+  if (!match) return null;
+  const [, day, month, year] = match;
+  return new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+}
+
 const PARSE_PROMPT = `Parse Irish utility bills comprehensively. Extract EVERY visible field. Return ONE JSON object only. No prose.
 
 ⚠️ CRITICAL ANTI-HALLUCINATION RULES:
@@ -1328,12 +1452,17 @@ serve(async (req) => {
       })
     );
 
+    // Calculate confidence score
+    const confidenceScore = calculateConfidenceScore(parsedData, hasElectricityData, hasGasData);
+    console.log(`✅ Confidence score: ${confidenceScore}%`);
+
     // Check if all API calls succeeded
     const allSuccessful = apiResults.every(result => result.ok);
 
     return new Response(
       JSON.stringify({
         ok: allSuccessful,
+        confidence_score: confidenceScore,
         parsed_data: parsedData,
         services_detected: {
           electricity: hasElectricityData,

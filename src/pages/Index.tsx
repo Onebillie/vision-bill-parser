@@ -15,6 +15,7 @@ const Index = () => {
   const [lastUploadedFilePath, setLastUploadedFilePath] = useState<string | null>(null);
   const [logs, setLogs] = useState<Array<{ timestamp: string; type: "info" | "success" | "error" | "warning"; message: string }>>([]);
   const [parsedResults, setParsedResults] = useState<any>(null);
+  const [confidenceScore, setConfidenceScore] = useState<number | null>(null);
 
   const addLog = (type: "info" | "success" | "error" | "warning", message: string) => {
     const timestamp = new Date().toLocaleTimeString();
@@ -56,7 +57,8 @@ const Index = () => {
 
       if (error) throw error;
       setParsedResults(data);
-      addLog("success", "AI parsing completed");
+      setConfidenceScore(data.confidence_score || null);
+      addLog("success", `AI parsing completed (Confidence: ${data.confidence_score || 0}%`);
 
       if (data.classification) {
         addLog("info", `Document classified as: ${data.classification}`);
@@ -115,7 +117,18 @@ const Index = () => {
       <div className="max-w-4xl mx-auto space-y-6">
         <div className="space-y-4">
           <div className="text-center space-y-2">
-            <h1 className="text-3xl font-bold">Utility Bill Parser</h1>
+            <div className="flex items-center justify-center gap-4">
+              <h1 className="text-3xl font-bold">Utility Bill Parser</h1>
+              {confidenceScore !== null && (
+                <div className={`px-4 py-2 rounded-lg font-semibold text-sm ${
+                  confidenceScore >= 80 ? 'bg-green-500/20 text-green-700 dark:text-green-400' :
+                  confidenceScore >= 60 ? 'bg-yellow-500/20 text-yellow-700 dark:text-yellow-400' :
+                  'bg-red-500/20 text-red-700 dark:text-red-400'
+                }`}>
+                  Confidence: {confidenceScore}%
+                </div>
+              )}
+            </div>
             <p className="text-muted-foreground">Upload your bill and we'll extract the data</p>
           </div>
           <div className="flex gap-2 justify-center">
