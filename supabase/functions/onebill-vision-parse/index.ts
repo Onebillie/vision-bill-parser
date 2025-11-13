@@ -97,17 +97,24 @@ function calculateConfidenceScore(parsedData: any, hasElectricityData: boolean, 
     dateConsistency: 25   // 25% for date consistency
   };
 
-  // 1. Key Fields Score (40 points)
+  // 1. Key Fields Score (40 points) - Updated priorities per user feedback
   let keyFieldScore = 0;
   const keyFieldsToCheck = [
-    { path: 'bills.customer[0].details.customer_name', points: 5 },
-    { path: 'bills.customer[0].details.address', points: 5 },
-    { path: 'bills.electricity[0].electricity_details.invoice_number', points: 7, condition: hasElectricityData },
-    { path: 'bills.electricity[0].electricity_details.account_number', points: 7, condition: hasElectricityData },
-    { path: 'bills.electricity[0].electricity_details.meter_details.mprn', points: 8, condition: hasElectricityData },
-    { path: 'bills.gas[0].gas_details.invoice_number', points: 7, condition: hasGasData },
-    { path: 'bills.gas[0].gas_details.account_number', points: 7, condition: hasGasData },
-    { path: 'bills.gas[0].gas_details.gprn', points: 8, condition: hasGasData }
+    // MOST CRITICAL fields (higher weight)
+    { path: 'bills.electricity[0].electricity_details.meter_details.mprn', points: 12, condition: hasElectricityData }, // MOST CRITICAL
+    { path: 'bills.electricity[0].electricity_details.meter_details.dg', points: 10, condition: hasElectricityData },  // CRITICAL
+    { path: 'bills.electricity[0].electricity_details.meter_details.mcc', points: 8, condition: hasElectricityData },  // CRITICAL (smart meter)
+    { path: 'bills.gas[0].gas_details.gprn', points: 10, condition: hasGasData }, // CRITICAL for gas
+    
+    // VERY IMPORTANT fields
+    { path: 'bills.electricity[0].supplier_details.contract_end_date', points: 5, condition: hasElectricityData }, // CRITICAL if present
+    { path: 'bills.electricity[0].supplier_details.tariff_name', points: 4, condition: hasElectricityData }, // VERY IMPORTANT
+    { path: 'bills.gas[0].supplier_details.contract_end_date', points: 5, condition: hasGasData },
+    { path: 'bills.gas[0].supplier_details.tariff_name', points: 4, condition: hasGasData },
+    
+    // Lower priority (per user: can be ignored if unclear)
+    { path: 'bills.electricity[0].electricity_details.invoice_number', points: 2, condition: hasElectricityData },
+    { path: 'bills.gas[0].gas_details.invoice_number', points: 2, condition: hasGasData }
   ];
 
   keyFieldsToCheck.forEach(field => {
@@ -122,29 +129,57 @@ function calculateConfidenceScore(parsedData: any, hasElectricityData: boolean, 
 
   score += Math.min(keyFieldScore, weights.keyFields);
 
-  // 2. Data Completeness Score (35 points)
+  // 2. Data Completeness Score (35 points) - Enhanced for meter reading validation
   let completenessScore = 0;
   
   if (hasElectricityData) {
     const elec = parsedData.bills.electricity?.[0];
     if (elec?.supplier_details?.billing_period) completenessScore += 5;
-    if (elec?.supplier_details?.issue_date) completenessScore += 3;
-    if (elec?.charges_and_usage?.meter_readings?.length > 0) completenessScore += 8;
-    if (elec?.charges_and_usage?.detailed_kWh_usage?.length > 0) completenessScore += 6;
-    if (elec?.charges_and_usage?.total_amount_due > 0) completenessScore += 6;
-    if (elec?.electricity_details?.meter_details?.dg) completenessScore += 4;
-    if (elec?.electricity_details?.meter_details?.mcc) completenessScore += 3;
+    if (elec?.supplier_details?.issue_date) completenessScore += 2;
+    
+    const meterReadings = elec?.charges_and_usage?.meter_readings || [];
+    if (meterReadings.length > 0) {
+      completenessScore += 6; // Base points for having readings
+      
+      // CRITICAL: Check meter reading date correlation
+      const readingsWithDates = meterReadings.filter((r: any) => r.date && r.date !== '0000-00-00').length;
+      const dateCorrelationRatio = readingsWithDates / meterReadings.length;
+      completenessScore += Math.floor(dateCorrelationRatio * 6); // Up to 6 bonus points for date correlation
+    }
+    
+    // For smart meters (MCC12): usage amounts are more important than traditional readings
+    const isSmart = elec?.electricity_details?.meter_details?.mcc === 'MCC12';
+    if (isSmart && elec?.charges_and_usage?.detailed_kWh_usage?.length > 0) {
+      completenessScore += 8; // Smart meter time band data
+    } else if (elec?.charges_and_usage?.detailed_kWh_usage?.length > 0) {
+      completenessScore += 4; // Traditional meter usage
+    }
+    
+    if (elec?.charges_and_usage?.total_amount_due > 0) completenessScore += 4;
+    
+    // Bonus for microgeneration detection
+    if (elec?.charges_and_usage?.microgen_credit || elec?.charges_and_usage?.has_microgeneration) {
+      completenessScore += 2;
+    }
   }
   
   if (hasGasData) {
     const gas = parsedData.bills.gas?.[0];
     if (gas?.supplier_details?.billing_period) completenessScore += 5;
-    if (gas?.supplier_details?.issue_date) completenessScore += 3;
-    if (gas?.charges_and_usage?.meter_readings?.length > 0) completenessScore += 8;
-    if (gas?.charges_and_usage?.gas_usage?.length > 0) completenessScore += 6;
-    if (gas?.charges_and_usage?.total_amount_due > 0) completenessScore += 6;
-    if (gas?.gas_details?.conversion_factor) completenessScore += 3;
-    if (gas?.gas_details?.calorific_value) completenessScore += 4;
+    if (gas?.supplier_details?.issue_date) completenessScore += 2;
+    
+    const meterReadings = gas?.charges_and_usage?.meter_readings || [];
+    if (meterReadings.length > 0) {
+      completenessScore += 6;
+      
+      // Check date correlation for gas readings too
+      const readingsWithDates = meterReadings.filter((r: any) => r.date && r.date !== '0000-00-00').length;
+      const dateCorrelationRatio = readingsWithDates / meterReadings.length;
+      completenessScore += Math.floor(dateCorrelationRatio * 6);
+    }
+    
+    if (gas?.charges_and_usage?.gas_usage?.length > 0) completenessScore += 4;
+    if (gas?.charges_and_usage?.total_amount_due > 0) completenessScore += 4;
   }
 
   score += Math.min(completenessScore, weights.dataCompleteness);
@@ -214,13 +249,23 @@ function parseDate(dateStr: string): Date | null {
 
 const PARSE_PROMPT = `Parse Irish utility bills comprehensively. Extract EVERY visible field. Return ONE JSON object only. No prose.
 
+⚠️ CRITICAL FIELD PRIORITIES (IN ORDER OF IMPORTANCE):
+1. MPRN (Meter Point Reference Number) - MOST CRITICAL for electricity routing
+2. DG type (DG1, DG2, DG3, DG4) - CRITICAL for electricity API
+3. MCC type (MCC01, MCC12, etc.) - CRITICAL determines meter type (traditional vs smart)
+4. Contract end date - CRITICAL if present on bill  
+5. Tariff name - VERY IMPORTANT (often near meter readings area)
+6. Meter readings with EXACT dates - correlate each reading with its specific read_date
+7. GPRN (Gas Point Reference Number) - CRITICAL for gas routing
+8. Microgeneration/Solar/Export - ALWAYS check every bill for these credits
+9. Invoice/account numbers - LOW PRIORITY, can be ignored if unclear
+
 ⚠️ CRITICAL ANTI-HALLUCINATION RULES:
-1. NEVER invent, guess, or fabricate data that is not clearly visible
-2. If a field is not present, leave it EMPTY, null, or omit it completely
-3. DO NOT invent GPRNs, MPRNs, DG codes, MCC codes, account numbers, or invoice numbers
-4. Most bills are SINGLE-SERVICE (electricity OR gas only) - if you only see electricity data, leave ALL gas fields empty
-5. If you only see gas data, leave ALL electricity fields empty
-6. Combined bills are RARE and must have BOTH services CLEARLY visible with separate identifiers
+1. ONLY extract data you can DIRECTLY see - NEVER invent, guess, or fabricate
+2. If a field is not clearly visible, leave it EMPTY
+3. Most bills are SINGLE-SERVICE (electricity OR gas, not both)
+4. DO NOT extract identifiers from unrelated numbers like serial numbers or barcodes
+5. Invoice number and account number are LOW PRIORITY - skip if unclear
 
 CRITICAL: Distinguish between:
 1. UTILITY BILLS: Documents with invoice numbers, account numbers, billing periods, meter readings, charges breakdown, and financial totals
@@ -289,8 +334,26 @@ For UTILITY BILLS:
 - ⚠️ If you see ONLY electricity data (MPRN, DG, MCC, kWh charges), DO NOT populate ANY gas fields (leave gas array EMPTY)
 - ⚠️ If you see ONLY gas data (GPRN, m³ charges), DO NOT populate ANY electricity fields (leave electricity array EMPTY)
 - Most Irish bills are SINGLE-SERVICE - combined bills are uncommon and must show BOTH services with separate sections
-- Meter readings MUST include: meter_number, read_date, read_type (A/E/CU), previous_reading, current_reading, units_consumed, unit_type (Day/Night/Peak/etc), rate_per_unit
-- Validate: All meter reading dates MUST fall within billing_period dates
+
+⚠️ METER READING DATE CORRELATION - EXTREMELY CRITICAL:
+- Bills show "from" and "to" dates for the usage period
+- Each meter reading MUST have its exact read_date from the bill
+- Usage = latest_reading - previous_reading over that date range
+- Some bills have MULTIPLE periods (price changes, interim readings, meter changes)
+- Extract EVERY reading with: meter_number, read_date, read_type (A/E/CU/I), reading values
+- ALWAYS correlate each reading value with its specific date visible on the bill
+
+⚠️ SMART METERS (MCC12) - SPECIAL HANDLING:
+- Smart meters (MCC12) typically do NOT show traditional meter readings
+- Instead: extract USAGE AMOUNTS in KWH for time bands
+- Time bands: Day, Night, Peak, EV (Electric Vehicle), Weekend, Saturday, Sunday, Microgen
+- Extract as separate entries with usage amount, unit_type (time band), and billing period dates
+
+⚠️ MICROGENERATION / SOLAR / EXPORT - CHECK EVERY BILL:
+- ALWAYS look for: "Microgen Credit", "Export", "Solar Feed-in", negative charges
+- Extract as charge entry with negative amount or dedicated field
+- This is increasingly common and MUST NOT be missed
+
 - Billing period: Extract exact start_date and end_date in YYYY-MM-DD format, calculate days_count
 
 COMPREHENSIVE FIELD LIST TO EXTRACT:
@@ -320,7 +383,7 @@ previous_balance, payments_received, amount_outstanding, total_amount_due, direc
 plan_name, phone_number, broadband_service_number, uan_numbers, iban, bic
 
 **Extra Context:**
-service_provider, tariff_name, contract_end_date, payment_method, average_daily_use, comparison_same_period_last_year, comparison_average_residential, carbon_emissions_kg, energy_efficiency_tips, emergency_contact_numbers, customer_service_hours, complaint_process_info, fuel_mix_information
+service_provider, tariff_name (VERY IMPORTANT - often near meter readings), contract_end_date (CRITICAL if present), payment_method, average_daily_use, comparison_same_period_last_year, comparison_average_residential, carbon_emissions_kg, energy_efficiency_tips, emergency_contact_numbers, customer_service_hours, complaint_process_info, fuel_mix_information
 
 Rules:
 - Dates: "YYYY-MM-DD"; unknown → "0000-00-00"
