@@ -251,14 +251,39 @@ const PARSE_PROMPT = `Parse Irish utility bills comprehensively. Extract EVERY v
 
 ⚠️ CRITICAL FIELD PRIORITIES (IN ORDER OF IMPORTANCE):
 1. MPRN (Meter Point Reference Number) - MOST CRITICAL for electricity routing
+   - ALWAYS starts with '10'
+   - ALWAYS exactly 11 digits long (e.g., 10305037936)
+   - If customer photographed full bill front/back, MPRN will ALWAYS be present
+   - Different suppliers display it differently (grid format OR side-by-side with DG/MC/Profile)
+   
 2. DG type (DG1, DG2, DG3, DG4) - CRITICAL for electricity API
+   - Must be prefixed with "DG" (add prefix if missing)
+   - Displayed near MPRN (grid format OR side-by-side)
+   
 3. MCC type (MCC01, MCC12, etc.) - CRITICAL determines meter type (traditional vs smart)
+   - Must be prefixed with "MCC" (add prefix if missing)
+   - May be labeled "MC" in grid format
+   - MCC12 = SMART METER (NO traditional meter readings, only kWh totals by time band)
+   
 4. Contract end date - CRITICAL if present on bill  
+
 5. Tariff name - VERY IMPORTANT (often near meter readings area)
+
 6. Meter readings with EXACT dates - correlate each reading with its specific read_date
+   - Meter readings often get mixed up with other numbers on bills
+   - IDENTIFICATION: Look for numbers with (A), (E), (C), or (P) appended to them
+     * (A) = Actual Meter Reading (physically read)
+     * (E) = Estimated Meter Reading (calculated)
+     * (C) = Customer Meter Reading (customer submitted)
+     * (P) = Prorated
+   - Meter readings are usually 5 or 6 digits long
+   - ONLY for traditional meters (NOT MCC12 smart meters)
+   
 7. GPRN (Gas Point Reference Number) - CRITICAL for gas routing
+
 8. Microgeneration/Solar/Export - ALWAYS check every bill for these credits
-9. Invoice/account numbers - LOW PRIORITY, can be ignored if unclear
+
+9. Invoice/account numbers - LOW PRIORITY, can be ignored completely
 
 ⚠️ CRITICAL ANTI-HALLUCINATION RULES:
 1. ONLY extract data you can DIRECTLY see - NEVER invent, guess, or fabricate
@@ -344,10 +369,12 @@ For UTILITY BILLS:
 - ALWAYS correlate each reading value with its specific date visible on the bill
 
 ⚠️ SMART METERS (MCC12) - SPECIAL HANDLING:
-- Smart meters (MCC12) typically do NOT show traditional meter readings
-- Instead: extract USAGE AMOUNTS in KWH for time bands
+- Smart meters (MCC12) do NOT have traditional meter readings (previous/current pairs)
+- Instead: extract PRE-CALCULATED KWH TOTALS for time-of-use intervals
 - Time bands: Day, Night, Peak, EV (Electric Vehicle), Weekend, Saturday, Sunday, Microgen
-- Extract as separate entries with usage amount, unit_type (time band), and billing period dates
+- These are usage amounts for THIS billing period ONLY
+- Can show multiples if mid-term or pro-rata change occurred
+- Extract as separate entries with kwh_total, unit_type (time band), rate, charge, and time_window
 
 ⚠️ MICROGENERATION / SOLAR / EXPORT - CHECK EVERY BILL:
 - ALWAYS look for: "Microgen Credit", "Export", "Solar Feed-in", negative charges
@@ -359,19 +386,22 @@ For UTILITY BILLS:
 COMPREHENSIVE FIELD LIST TO EXTRACT:
 
 **Customer & Account:**
-customer_name, billing_address (structured object), supply_address, vat_number, vat_registration_address, account_number, invoice_number, bill_number
+customer_name, billing_address (structured object), supply_address, vat_number, vat_registration_address, account_number (LOW PRIORITY - can skip), invoice_number (LOW PRIORITY - can skip), bill_number, is_final_bill (check for "Final Bill" indicator)
 
 **Billing Period:**
 billing_period.start_date, billing_period.end_date, billing_period.days_count, issue_date, billing_date, due_date, payment_due_date
 
 **Meter Identifiers:**
-Electricity (mandatory): mprn, dg, mcc_type
-Electricity (optional): profile (01, 02, 04, 27, etc - not all bills have this)
+Electricity (mandatory): mprn (11 digits, starts with '10'), dg (prefixed with "DG"), mcc_type (prefixed with "MCC")
+Electricity (optional): profile (0, 01, 02, 04, 27, etc - shown in grid with MPRN/DG/MC - NOT mandatory)
 Gas (mandatory): gprn
 Meter Photo: meter_serial_number, meter_manufacturer, meter_model
 
-**Meter Readings Array (structured):**
-Each reading: meter_number, meter_serial, read_date, read_type, previous_reading, current_reading, interim_reading, multiplier, units_consumed, unit_type, rate_per_unit, total_charge, time_window
+**Meter Readings Array (structured - for TRADITIONAL meters ONLY, NOT MCC12):**
+Each reading: meter_number (5-6 digits), meter_serial, read_date (EXACT date from bill), read_type (A/E/C/P - look for these markers), previous_reading, current_reading, interim_reading (if multiple periods), multiplier, units_consumed (latest - previous), unit_type (Day/Night/24hr), rate_per_unit, total_charge, time_window
+
+**Smart Meter Usage Array (for MCC12 ONLY):**
+Each time band: unit_type (Day/Night/Peak/EV/Weekend/Saturday/Sunday/Microgen), kwh_total (pre-calculated usage for THIS billing period), rate_per_kwh, total_charge, time_window (e.g., "8am-5pm / 7pm-11pm")
 
 **Charges Breakdown:**
 electricity_charges array (description, units, rate, amount), standing_charge, pso_levy, carbon_tax, discounts, microgen_credit, subtotal_before_vat, vat_rate, vat_amount, total_including_vat
