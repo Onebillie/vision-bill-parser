@@ -168,7 +168,7 @@ const Index = () => {
               type="file"
               accept=".jpg,.jpeg,.png,.webp,.pdf,.csv,.xls,.xlsx"
               onChange={(e) => setFile(e.target.files?.[0] || null)}
-              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm file:border-0 file:bg-transparent file:text-sm file:font-medium"
+              className="w-full text-sm file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-primary file:text-primary-foreground hover:file:bg-primary/90 file:cursor-pointer cursor-pointer"
               required
             />
             <p className="text-xs text-muted-foreground mt-1">
