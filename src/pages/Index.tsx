@@ -162,15 +162,18 @@ const Index = () => {
           </div>
 
           <div>
-            <label className="text-sm font-medium mb-2 block">Bill (Image or PDF)</label>
+            <label className="text-sm font-medium mb-2 block">Upload File</label>
             <input
               id="file-input"
               type="file"
-              accept="image/*,application/pdf"
+              accept="image/jpeg,image/png,image/webp,application/pdf,.pdf,.csv,text/csv,.xls,.xlsx,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
               onChange={(e) => setFile(e.target.files?.[0] || null)}
               className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm file:border-0 file:bg-transparent file:text-sm file:font-medium"
               required
             />
+            <p className="text-xs text-muted-foreground mt-1">
+              Supports JPG, PNG, WEBP, PDF, CSV, Excel (max 20MB)
+            </p>
           </div>
 
           <button
