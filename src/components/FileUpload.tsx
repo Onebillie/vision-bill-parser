@@ -39,7 +39,7 @@ export const FileUpload = ({ onFileSelect, disabled, currentFile, isUploading }:
       <input
         id="file-input"
         type="file"
-        accept="image/jpeg,image/png,image/webp,application/pdf,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        accept="image/jpeg,image/png,image/webp,application/pdf,.pdf,.csv,text/csv,.xls,.xlsx,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         className="hidden"
         onChange={(e) => {
           const file = e.target.files?.[0];
