@@ -166,7 +166,7 @@ const Index = () => {
             <input
               id="file-input"
               type="file"
-              accept="image/jpeg,image/png,image/webp,application/pdf,.pdf,.csv,text/csv,.xls,.xlsx,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+              accept=".jpg,.jpeg,.png,.webp,.pdf,.csv,.xls,.xlsx"
               onChange={(e) => setFile(e.target.files?.[0] || null)}
               className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm file:border-0 file:bg-transparent file:text-sm file:font-medium"
               required
