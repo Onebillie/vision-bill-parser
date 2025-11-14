@@ -468,22 +468,62 @@ serve(async (req) => {
       throw new Error("LOVABLE_API_KEY not configured");
     }
 
-    // Detect if it's a PDF
-    const isPdf = fileUrl.toLowerCase().endsWith('.pdf');
+    // Detect file type
+    const fileUrlLower = fileUrl.toLowerCase();
+    const isPdf = fileUrlLower.endsWith('.pdf');
+    const isCsv = fileUrlLower.endsWith('.csv') || fileUrlLower.includes('.csv');
+    const isExcel = fileUrlLower.endsWith('.xls') || fileUrlLower.endsWith('.xlsx');
     
-    // Get visual inputs (URLs for AI)
-    let { urls: imageUrls, usedConversion } = await getVisualInputs(fileUrl, isPdf);
-    console.log(`Parsing with ${imageUrls.length} image(s), conversion: ${usedConversion}`);
-
+    // Variables to track visual inputs
+    let imageUrls: string[] = [];
+    let usedConversion = false;
+    
     // Build content array with text and images/documents
     const content: any[] = [{ type: "text", text: PARSE_PROMPT }];
     
-    // If it's a PDF and we didn't convert yet, send as a document instead of image
-    if (isPdf && !usedConversion) {
-      content.push({ type: "document", document_url: { url: imageUrls[0] } });
+    // Handle CSV/Excel files - fetch content and send as text
+    if (isCsv || isExcel) {
+      console.log(`Detected ${isCsv ? 'CSV' : 'Excel'} file, fetching content as text`);
+      try {
+        const fileResponse = await fetch(fileUrl);
+        if (!fileResponse.ok) {
+          throw new Error(`Failed to fetch file: ${fileResponse.status}`);
+        }
+        const fileContent = await fileResponse.text();
+        console.log(`Fetched file content, length: ${fileContent.length} characters`);
+        
+        // For return metadata, set imageUrls to the original file URL
+        imageUrls = [fileUrl];
+        
+        // Append the file content as additional context
+        content.push({ 
+          type: "text", 
+          text: `\n\nFile content (${isCsv ? 'CSV' : 'Excel'} data):\n\`\`\`\n${fileContent.slice(0, 50000)}\n\`\`\`` 
+        });
+      } catch (error) {
+        console.error("Error fetching CSV/Excel content:", error);
+        return new Response(
+          JSON.stringify({ 
+            error: "Failed to read CSV/Excel file", 
+            details: error instanceof Error ? error.message : String(error) 
+          }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
     } else {
-      for (const imgUrl of imageUrls.slice(0, 3)) {
-        content.push({ type: "image_url", image_url: { url: imgUrl } });
+      // Handle images and PDFs with vision
+      const visualInputs = await getVisualInputs(fileUrl, isPdf);
+      imageUrls = visualInputs.urls;
+      usedConversion = visualInputs.usedConversion;
+      console.log(`Parsing with ${imageUrls.length} image(s), conversion: ${usedConversion}`);
+      
+      // If it's a PDF and we didn't convert yet, send as a document instead of image
+      if (isPdf && !usedConversion) {
+        content.push({ type: "document", document_url: { url: imageUrls[0] } });
+      } else {
+        for (const imgUrl of imageUrls.slice(0, 3)) {
+          content.push({ type: "image_url", image_url: { url: imgUrl } });
+        }
       }
     }
 
@@ -1570,7 +1610,7 @@ serve(async (req) => {
           gas_date_warnings: gasDateWarnings
         },
         api_calls: apiResults,
-        input_type: isPdf ? "pdf" : "image",
+        input_type: isCsv || isExcel ? (isCsv ? "csv" : "excel") : (isPdf ? "pdf" : "image"),
         used_conversion: usedConversion,
         visual_input_count: imageUrls.length,
         visual_inputs_sample: imageUrls.slice(0, 2)
