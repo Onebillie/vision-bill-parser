@@ -1506,7 +1506,7 @@ serve(async (req) => {
               const fileResp = await fetch(fileUrl);
               const arrayBuf = await fileResp.arrayBuffer();
               
-              // Detect content type with support for Excel files
+              // Detect content type
               let contentType = fileResp.headers.get("content-type");
               if (!contentType) {
                 const fileUrlLower = fileUrl.toLowerCase();
@@ -1529,8 +1529,12 @@ serve(async (req) => {
               
               const fileName = typeof file_path === "string" && file_path.length > 0 ? file_path : "upload.bin";
               
-              // Create blob directly from arrayBuffer without Uint8Array conversion
-              const blob = new Blob([arrayBuf], { type: contentType });
+              // Use Uint8Array for non-Excel files (working approach), direct ArrayBuffer for Excel
+              const fileUrlLower = fileUrl.toLowerCase();
+              const isExcelFile = fileUrlLower.endsWith(".xlsx") || fileUrlLower.endsWith(".xls");
+              const blob = isExcelFile 
+                ? new Blob([arrayBuf], { type: contentType })
+                : new Blob([new Uint8Array(arrayBuf)], { type: contentType });
               form.append("file", blob, fileName);
             } catch (e) {
               console.error("Failed to fetch original file for meter upload:", e);
@@ -1553,7 +1557,7 @@ serve(async (req) => {
               const fileResp = await fetch(fileUrl);
               const arrayBuf = await fileResp.arrayBuffer();
               
-              // Detect content type with support for Excel files
+              // Detect content type
               let contentType = fileResp.headers.get("content-type");
               if (!contentType) {
                 const fileUrlLower = fileUrl.toLowerCase();
@@ -1576,8 +1580,12 @@ serve(async (req) => {
               
               const fileName = typeof file_path === "string" && file_path.length > 0 ? file_path : "upload.bin";
               
-              // Create blob directly from arrayBuffer without Uint8Array conversion
-              const blob = new Blob([arrayBuf], { type: contentType });
+              // Use Uint8Array for non-Excel files (working approach), direct ArrayBuffer for Excel
+              const fileUrlLower = fileUrl.toLowerCase();
+              const isExcelFile = fileUrlLower.endsWith(".xlsx") || fileUrlLower.endsWith(".xls");
+              const blob = isExcelFile 
+                ? new Blob([arrayBuf], { type: contentType })
+                : new Blob([new Uint8Array(arrayBuf)], { type: contentType });
               form.append("file", blob, fileName);
             } catch (e) {
               console.error(`Failed to fetch original file for ${type} upload:`, e);
