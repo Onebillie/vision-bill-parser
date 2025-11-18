@@ -1438,8 +1438,16 @@ serve(async (req) => {
     // Prepare API calls based on classification (supports multiple APIs for combined bills)
     const apiCalls: Array<{ endpoint: string; type: string; payload?: any }> = [];
     
-    // Classify as Electricity-File if mprn or dg exists
-    if (hasElectricityData) {
+    // For CSV/Excel files, be more lenient - send to electricity/gas if there's ANY indicator
+    // since CSV files are NEVER meter photos
+    const hasAnyElectricityIndicator = hasElectricityIdentifierForClassification || electricityBillingIndicators > 0;
+    const hasAnyGasIndicator = hasGasIdentifierForClassification || gasBillingIndicators > 0;
+    
+    // Classify as Electricity-File if there's electricity data OR (for CSV/Excel) any electricity indicator
+    if (hasElectricityData || ((isCsv || isExcel) && hasAnyElectricityIndicator)) {
+      console.log((isCsv || isExcel) && !hasElectricityData ? 
+        `⚡ CSV/Excel with electricity indicators (${electricityBillingIndicators}) - sending to electricity API` :
+        `⚡ ELECTRICITY BILL: sending to electricity API`);
       apiCalls.push({
         endpoint: "https://api.onebill.ie/api/electricity-file",
         type: "electricity",
@@ -1452,8 +1460,11 @@ serve(async (req) => {
       });
     }
     
-    // Classify as Gas-File if gprn exists
-    if (hasGasData) {
+    // Classify as Gas-File if there's gas data OR (for CSV/Excel) any gas indicator
+    if (hasGasData || ((isCsv || isExcel) && hasAnyGasIndicator && !hasAnyElectricityIndicator)) {
+      console.log((isCsv || isExcel) && !hasGasData ? 
+        `🔥 CSV/Excel with gas indicators (${gasBillingIndicators}) - sending to gas API` :
+        `🔥 GAS BILL: sending to gas API`);
       apiCalls.push({
         endpoint: "https://api.onebill.ie/api/gas-file",
         type: "gas",
@@ -1464,13 +1475,17 @@ serve(async (req) => {
       });
     }
     
-    // Default to Meter API if not enough data to classify
-    if (!hasElectricityData && !hasGasData) {
-      console.log("Not enough data to classify - defaulting to Meter API");
-      apiCalls.push({
-        endpoint: "https://api.onebill.ie/api/meter-file",
-        type: "meter"
-      });
+    // Default to Meter API only for non-CSV/Excel files (meter photos)
+    if (!hasElectricityData && !hasGasData && !hasAnyElectricityIndicator && !hasAnyGasIndicator) {
+      if (isCsv || isExcel) {
+        console.log("⚠️ CSV/Excel file with no recognizable billing data - skipping OneBill API");
+      } else {
+        console.log("📸 METER PHOTO: defaulting to Meter API");
+        apiCalls.push({
+          endpoint: "https://api.onebill.ie/api/meter-file",
+          type: "meter"
+        });
+      }
     }
 
     // Call all OneBill API endpoints
