@@ -1466,16 +1466,11 @@ serve(async (req) => {
     
     // Default to Meter API if not enough data to classify
     if (!hasElectricityData && !hasGasData) {
-      if (isCsv || isExcel) {
-        console.log("Not enough data to classify and file is CSV/Excel - skipping OneBill API calls (no suitable endpoint)");
-        // Intentionally do not push any API call for CSV/Excel when unclassified
-      } else {
-        console.log("Not enough data to classify - defaulting to Meter API");
-        apiCalls.push({
-          endpoint: "https://api.onebill.ie/api/meter-file",
-          type: "meter"
-        });
-      }
+      console.log("Not enough data to classify - defaulting to Meter API");
+      apiCalls.push({
+        endpoint: "https://api.onebill.ie/api/meter-file",
+        type: "meter"
+      });
     }
 
     // Call all OneBill API endpoints
