@@ -1505,13 +1505,32 @@ serve(async (req) => {
             try {
               const fileResp = await fetch(fileUrl);
               const arrayBuf = await fileResp.arrayBuffer();
-              const contentType = fileResp.headers.get("content-type") ||
-                (fileUrl.toLowerCase().endsWith(".png") ? "image/png" :
-                 fileUrl.toLowerCase().endsWith(".jpg") || fileUrl.toLowerCase().endsWith(".jpeg") ? "image/jpeg" :
-                 fileUrl.toLowerCase().endsWith(".pdf") ? "application/pdf" :
-                 "application/octet-stream");
+              
+              // Detect content type with support for Excel files
+              let contentType = fileResp.headers.get("content-type");
+              if (!contentType) {
+                const fileUrlLower = fileUrl.toLowerCase();
+                if (fileUrlLower.endsWith(".xlsx")) {
+                  contentType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+                } else if (fileUrlLower.endsWith(".xls")) {
+                  contentType = "application/vnd.ms-excel";
+                } else if (fileUrlLower.endsWith(".csv")) {
+                  contentType = "text/csv";
+                } else if (fileUrlLower.endsWith(".png")) {
+                  contentType = "image/png";
+                } else if (fileUrlLower.endsWith(".jpg") || fileUrlLower.endsWith(".jpeg")) {
+                  contentType = "image/jpeg";
+                } else if (fileUrlLower.endsWith(".pdf")) {
+                  contentType = "application/pdf";
+                } else {
+                  contentType = "application/octet-stream";
+                }
+              }
+              
               const fileName = typeof file_path === "string" && file_path.length > 0 ? file_path : "upload.bin";
-              const blob = new Blob([new Uint8Array(arrayBuf)], { type: contentType });
+              
+              // Create blob directly from arrayBuffer without Uint8Array conversion
+              const blob = new Blob([arrayBuf], { type: contentType });
               form.append("file", blob, fileName);
             } catch (e) {
               console.error("Failed to fetch original file for meter upload:", e);
@@ -1533,13 +1552,32 @@ serve(async (req) => {
             try {
               const fileResp = await fetch(fileUrl);
               const arrayBuf = await fileResp.arrayBuffer();
-              const contentType = fileResp.headers.get("content-type") ||
-                (fileUrl.toLowerCase().endsWith(".png") ? "image/png" :
-                 fileUrl.toLowerCase().endsWith(".jpg") || fileUrl.toLowerCase().endsWith(".jpeg") ? "image/jpeg" :
-                 fileUrl.toLowerCase().endsWith(".pdf") ? "application/pdf" :
-                 "application/octet-stream");
+              
+              // Detect content type with support for Excel files
+              let contentType = fileResp.headers.get("content-type");
+              if (!contentType) {
+                const fileUrlLower = fileUrl.toLowerCase();
+                if (fileUrlLower.endsWith(".xlsx")) {
+                  contentType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+                } else if (fileUrlLower.endsWith(".xls")) {
+                  contentType = "application/vnd.ms-excel";
+                } else if (fileUrlLower.endsWith(".csv")) {
+                  contentType = "text/csv";
+                } else if (fileUrlLower.endsWith(".png")) {
+                  contentType = "image/png";
+                } else if (fileUrlLower.endsWith(".jpg") || fileUrlLower.endsWith(".jpeg")) {
+                  contentType = "image/jpeg";
+                } else if (fileUrlLower.endsWith(".pdf")) {
+                  contentType = "application/pdf";
+                } else {
+                  contentType = "application/octet-stream";
+                }
+              }
+              
               const fileName = typeof file_path === "string" && file_path.length > 0 ? file_path : "upload.bin";
-              const blob = new Blob([new Uint8Array(arrayBuf)], { type: contentType });
+              
+              // Create blob directly from arrayBuffer without Uint8Array conversion
+              const blob = new Blob([arrayBuf], { type: contentType });
               form.append("file", blob, fileName);
             } catch (e) {
               console.error(`Failed to fetch original file for ${type} upload:`, e);
