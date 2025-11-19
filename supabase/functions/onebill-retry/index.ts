@@ -90,12 +90,8 @@ serve(async (req) => {
               
               const name = typeof file_path === "string" && file_path.length > 0 ? file_path : "upload.bin";
               
-              // Use Uint8Array for non-Excel files (working approach), direct ArrayBuffer for Excel
-              const urlLower = urlToFetch.toLowerCase();
-              const isExcelFile = urlLower.endsWith(".xlsx") || urlLower.endsWith(".xls");
-              const blob = isExcelFile 
-                ? new Blob([buf], { type: contentType })
-                : new Blob([new Uint8Array(buf)], { type: contentType });
+              // Use Uint8Array wrapper for consistent binary file handling
+              const blob = new Blob([new Uint8Array(buf)], { type: contentType });
               form.append("file", blob, name);
             } catch (e) {
               console.error("meter-retry: failed to fetch original file:", e);
@@ -151,12 +147,8 @@ serve(async (req) => {
               
               const name = typeof file_path === "string" && file_path.length > 0 ? file_path : "upload.bin";
               
-              // Use Uint8Array for non-Excel files (working approach), direct ArrayBuffer for Excel
-              const urlLower = urlToFetch.toLowerCase();
-              const isExcelFile = urlLower.endsWith(".xlsx") || urlLower.endsWith(".xls");
-              const blob = isExcelFile 
-                ? new Blob([buf], { type: contentType })
-                : new Blob([new Uint8Array(buf)], { type: contentType });
+              // Use Uint8Array wrapper for consistent binary file handling
+              const blob = new Blob([new Uint8Array(buf)], { type: contentType });
               form.append("file", blob, name);
             } catch (e) {
               console.error(`${type}-retry: failed to fetch original file:`, e);
