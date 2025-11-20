@@ -1475,8 +1475,8 @@ serve(async (req) => {
       });
     }
     
-    // Default to Meter API only for non-CSV/Excel files (meter photos)
-    if (!hasElectricityData && !hasGasData && !hasAnyElectricityIndicator && !hasAnyGasIndicator) {
+    // Default to Meter API for non-CSV/Excel files that aren't classified as bills
+    if (!hasElectricityData && !hasGasData) {
       if (isCsv || isExcel) {
         console.log("⚠️ CSV/Excel file with no recognizable billing data - skipping OneBill API");
       } else {
